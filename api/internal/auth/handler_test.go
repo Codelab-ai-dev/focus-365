@@ -75,3 +75,29 @@ func TestRegisterValidation(t *testing.T) {
 		t.Errorf("code = %d, want 400", rec.Code)
 	}
 }
+
+func TestRegisterValidationMessages(t *testing.T) {
+	h := newHandler(t)
+	cases := []struct {
+		name string
+		body map[string]string
+		want string
+	}{
+		{"email inválido", map[string]string{"email": "bad", "password": "p4ssword", "name": "G"}, "El email no tiene un formato válido"},
+		{"contraseña corta", map[string]string{"email": "ok@focus.com", "password": "123", "name": "G"}, "La contraseña debe tener al menos 6 caracteres"},
+		{"nombre faltante", map[string]string{"email": "ok@focus.com", "password": "p4ssword", "name": ""}, "Falta el nombre"},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			rec := postJSON(t, h, "/register", c.body)
+			if rec.Code != http.StatusBadRequest {
+				t.Fatalf("code = %d, want 400", rec.Code)
+			}
+			var resp map[string]string
+			_ = json.Unmarshal(rec.Body.Bytes(), &resp)
+			if resp["error"] != c.want {
+				t.Errorf("error = %q, want %q", resp["error"], c.want)
+			}
+		})
+	}
+}

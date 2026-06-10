@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/focus365/api/internal/store"
@@ -142,10 +143,51 @@ func decodeAndValidate(w http.ResponseWriter, r *http.Request, dst any) bool {
 		return false
 	}
 	if err := validate.Struct(dst); err != nil {
-		writeErr(w, http.StatusBadRequest, "datos inválidos")
+		writeErr(w, http.StatusBadRequest, validationMessage(err))
 		return false
 	}
 	return true
+}
+
+// validationMessage traduce el primer error de validación a un mensaje claro
+// en español, indicando qué campo falló y por qué.
+func validationMessage(err error) string {
+	var verrs validator.ValidationErrors
+	if !errors.As(err, &verrs) || len(verrs) == 0 {
+		return "datos inválidos"
+	}
+	fe := verrs[0]
+	label := fieldLabel(fe.Field())
+	switch fe.Tag() {
+	case "required":
+		return "Falta " + label
+	case "email":
+		return "El email no tiene un formato válido"
+	case "min":
+		return capitalize(label) + " debe tener al menos " + fe.Param() + " caracteres"
+	default:
+		return capitalize(label) + " no es válido"
+	}
+}
+
+func fieldLabel(field string) string {
+	switch field {
+	case "Email":
+		return "el email"
+	case "Password":
+		return "la contraseña"
+	case "Name":
+		return "el nombre"
+	default:
+		return field
+	}
+}
+
+func capitalize(s string) string {
+	if s == "" {
+		return s
+	}
+	return strings.ToUpper(s[:1]) + s[1:]
 }
 
 func writeJSON(w http.ResponseWriter, status int, v any) {

@@ -1,23 +1,35 @@
 package main
 
 import (
+	"context"
 	"log"
 	"net/http"
-	"os"
 
+	"github.com/focus365/api/internal/config"
+	"github.com/focus365/api/internal/db"
 	"github.com/focus365/api/internal/server"
 )
 
 func main() {
-	port := os.Getenv("API_PORT")
-	if port == "" {
-		port = "8080"
+	cfg, err := config.Load()
+	if err != nil {
+		log.Fatal(err)
 	}
 
-	r := server.New()
+	pool, err := db.NewPool(context.Background(), cfg.DatabaseURL)
+	if err != nil {
+		log.Fatalf("db: %v", err)
+	}
+	defer pool.Close()
 
-	log.Printf("Focus 365 API escuchando en :%s", port)
-	if err := http.ListenAndServe(":"+port, r); err != nil {
+	h := server.New(server.Deps{
+		Pool:       pool,
+		JWTSecret:  cfg.JWTSecret,
+		CORSOrigin: cfg.CORSOrigin,
+	})
+
+	log.Printf("Focus 365 API escuchando en :%s", cfg.Port)
+	if err := http.ListenAndServe(":"+cfg.Port, h); err != nil {
 		log.Fatal(err)
 	}
 }

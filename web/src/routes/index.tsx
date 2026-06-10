@@ -1,0 +1,28 @@
+import { createFileRoute, useNavigate } from "@tanstack/react-router";
+import { useEffect } from "react";
+import { useAuth } from "@/lib/auth";
+
+export const Route = createFileRoute("/")({ component: HomePage });
+
+function HomePage() {
+  const { user, logout } = useAuth();
+  const navigate = useNavigate();
+
+  useEffect(() => {
+    if (!user) navigate({ to: "/login" });
+  }, [user, navigate]);
+
+  if (!user) return null;
+
+  return (
+    <div className="p-6">
+      <header className="flex items-center justify-between">
+        <h1 className="text-xl font-extrabold">Focus 365</h1>
+        <button onClick={logout} className="text-sm text-sand-400">Salir</button>
+      </header>
+      <p className="mt-6 text-sand-400">
+        Bienvenido, <span className="text-amber-brand">{user.name}</span>. El centro de mando llega en el siguiente plan.
+      </p>
+    </div>
+  );
+}

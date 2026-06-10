@@ -45,3 +45,18 @@ func TestRefreshRoundTrip(t *testing.T) {
 		t.Errorf("got %v, want %v", got, id)
 	}
 }
+
+func TestParseRejectsWrongTokenType(t *testing.T) {
+	tm := NewTokenManager("test-secret")
+	id := uuid.New()
+
+	access, _ := tm.IssueAccess(id)
+	if _, err := tm.ParseRefresh(access); err == nil {
+		t.Error("un access token no debe parsearse como refresh")
+	}
+
+	refresh, _ := tm.IssueRefresh(id)
+	if _, err := tm.ParseAccess(refresh); err == nil {
+		t.Error("un refresh token no debe parsearse como access")
+	}
+}

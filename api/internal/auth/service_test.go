@@ -8,6 +8,7 @@ import (
 	"github.com/focus365/api/internal/auth"
 	"github.com/focus365/api/internal/store"
 	"github.com/focus365/api/internal/testutil"
+	"github.com/google/uuid"
 )
 
 func newService(t *testing.T) *auth.Service {
@@ -40,8 +41,8 @@ func TestRegisterDuplicateEmail(t *testing.T) {
 	svc := newService(t)
 	ctx := context.Background()
 	_, _ = svc.Register(ctx, "dup@focus.com", "p4ssword", "A")
-	if _, err := svc.Register(ctx, "dup@focus.com", "p4ssword", "B"); err == nil {
-		t.Error("email duplicado debió fallar")
+	if _, err := svc.Register(ctx, "dup@focus.com", "p4ssword", "B"); !errors.Is(err, auth.ErrEmailTaken) {
+		t.Errorf("err = %v, want ErrEmailTaken", err)
 	}
 }
 
@@ -51,5 +52,19 @@ func TestLoginWrongPassword(t *testing.T) {
 	_, _ = svc.Register(ctx, "x@focus.com", "right", "X")
 	if _, err := svc.Login(ctx, "x@focus.com", "wrong"); !errors.Is(err, auth.ErrInvalidCredentials) {
 		t.Errorf("err = %v, want ErrInvalidCredentials", err)
+	}
+}
+
+func TestIssueTokens(t *testing.T) {
+	svc := newService(t)
+	access, refresh, err := svc.IssueTokens(uuid.New())
+	if err != nil {
+		t.Fatalf("IssueTokens: %v", err)
+	}
+	if access == "" || refresh == "" {
+		t.Error("access y refresh no deben estar vacíos")
+	}
+	if access == refresh {
+		t.Error("access y refresh deben ser distintos")
 	}
 }

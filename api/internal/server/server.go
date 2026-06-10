@@ -3,29 +3,35 @@ package server
 import (
 	"encoding/json"
 	"net/http"
-	"os"
 
+	"github.com/focus365/api/internal/auth"
+	"github.com/focus365/api/internal/store"
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
+	"github.com/jackc/pgx/v5/pgxpool"
 )
 
-// New construye el router base de la API.
-// Los módulos (auth, daily, finance, training, mind, goals, assistant)
-// se montarán bajo /api/v1 conforme se implementen.
-func New() http.Handler {
+type Deps struct {
+	Pool       *pgxpool.Pool
+	JWTSecret  string
+	CORSOrigin string
+}
+
+func New(d Deps) http.Handler {
+	q := store.New(d.Pool)
+	tm := auth.NewTokenManager(d.JWTSecret)
+	authSvc := auth.NewService(q, tm)
+
 	r := chi.NewRouter()
 	r.Use(middleware.RequestID)
 	r.Use(middleware.RealIP)
 	r.Use(middleware.Logger)
 	r.Use(middleware.Recoverer)
-	r.Use(cors)
+	r.Use(cors(d.CORSOrigin))
 
 	r.Route("/api/v1", func(r chi.Router) {
 		r.Get("/health", health)
-		// r.Mount("/auth", auth.Routes())
-		// r.Mount("/daily", daily.Routes())
-		// r.Mount("/transactions", finance.Routes())
-		// r.Mount("/assistant", assistant.Routes())
+		r.Mount("/auth", auth.Routes(authSvc))
 	})
 
 	return r
@@ -44,20 +50,18 @@ func writeJSON(w http.ResponseWriter, status int, v any) {
 	_ = json.NewEncoder(w).Encode(v)
 }
 
-func cors(next http.Handler) http.Handler {
-	origin := os.Getenv("CORS_ORIGIN")
-	if origin == "" {
-		origin = "http://localhost:5173"
+func cors(origin string) func(http.Handler) http.Handler {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.Header().Set("Access-Control-Allow-Origin", origin)
+			w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, PATCH, DELETE, OPTIONS")
+			w.Header().Set("Access-Control-Allow-Headers", "Authorization, Content-Type")
+			w.Header().Set("Access-Control-Allow-Credentials", "true")
+			if r.Method == http.MethodOptions {
+				w.WriteHeader(http.StatusNoContent)
+				return
+			}
+			next.ServeHTTP(w, r)
+		})
 	}
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Access-Control-Allow-Origin", origin)
-		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, PATCH, DELETE, OPTIONS")
-		w.Header().Set("Access-Control-Allow-Headers", "Authorization, Content-Type")
-		w.Header().Set("Access-Control-Allow-Credentials", "true")
-		if r.Method == http.MethodOptions {
-			w.WriteHeader(http.StatusNoContent)
-			return
-		}
-		next.ServeHTTP(w, r)
-	})
 }

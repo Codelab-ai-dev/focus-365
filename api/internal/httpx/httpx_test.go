@@ -31,3 +31,40 @@ func TestValidationMessage(t *testing.T) {
 		})
 	}
 }
+
+// Estructuras con un único campo inválido para aislar cada rama de
+// ValidationMessage sin depender del orden de los errores.
+type numericMin struct {
+	Energy int `validate:"min=2"`
+}
+
+type stringMax struct {
+	Name string `validate:"max=3"`
+}
+
+type unknownTag struct {
+	Code string `validate:"alpha"`
+}
+
+func TestValidationMessageBranches(t *testing.T) {
+	cases := []struct {
+		name string
+		in   any
+		want string
+	}{
+		{"min numérico", numericMin{Energy: 1}, "La energía debe ser al menos 2"},
+		{"max de string", stringMax{Name: "abcd"}, "El nombre debe tener como máximo 3 caracteres"},
+		{"tag no manejado", unknownTag{Code: "123"}, "Code no es válido"},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			err := validate.Struct(c.in)
+			if err == nil {
+				t.Fatal("se esperaba un error de validación")
+			}
+			if got := ValidationMessage(err); got != c.want {
+				t.Errorf("ValidationMessage = %q, want %q", got, c.want)
+			}
+		})
+	}
+}

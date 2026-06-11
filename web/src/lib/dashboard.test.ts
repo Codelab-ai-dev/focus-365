@@ -25,7 +25,7 @@ describe("getDashboard", () => {
   afterEach(() => vi.restoreAllMocks());
 
   it("hace GET a /api/v1/dashboard con ?today=", async () => {
-    const fetchMock = vi.fn(() => okJson(snap));
+    const fetchMock = vi.fn((_url: string, _opts?: RequestInit) => okJson(snap));
     vi.stubGlobal("fetch", fetchMock);
 
     const result = await getDashboard();
@@ -38,7 +38,9 @@ describe("getDashboard", () => {
   });
 
   it("acepta checkin null", async () => {
-    const fetchMock = vi.fn(() => okJson({ ...snap, checkin: null, dimensions_active: 4 }));
+    const fetchMock = vi.fn((_url: string, _opts?: RequestInit) =>
+      okJson({ ...snap, checkin: null, dimensions_active: 4 })
+    );
     vi.stubGlobal("fetch", fetchMock);
     const result = await getDashboard();
     expect(result.checkin).toBeNull();

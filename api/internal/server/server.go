@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"net/http"
 
+	"github.com/focus365/api/internal/ai"
 	"github.com/focus365/api/internal/auth"
 	"github.com/focus365/api/internal/checkin"
 	"github.com/focus365/api/internal/dashboard"
@@ -21,6 +22,8 @@ type Deps struct {
 	Pool       *pgxpool.Pool
 	JWTSecret  string
 	CORSOrigin string
+	GroqAPIKey string
+	GroqModel  string
 }
 
 func New(d Deps) http.Handler {
@@ -52,6 +55,9 @@ func New(d Deps) http.Handler {
 			r.Mount("/goals", goals.Routes(goalsSvc))
 			dashboardSvc := dashboard.NewService(checkinSvc, financeSvc, trainingSvc, habitsSvc, goalsSvc)
 			r.Mount("/dashboard", dashboard.Routes(dashboardSvc))
+			groq := ai.NewGroqClient(d.GroqAPIKey, d.GroqModel)
+			aiSvc := ai.NewService(dashboardSvc, q, groq, d.GroqAPIKey != "")
+			r.Mount("/ai", ai.Routes(aiSvc))
 		})
 	})
 

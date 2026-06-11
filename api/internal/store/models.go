@@ -10,6 +10,16 @@ import (
 	"github.com/google/uuid"
 )
 
+type AiInsight struct {
+	ID              uuid.UUID `json:"id"`
+	UserID          uuid.UUID `json:"user_id"`
+	InsightDate     time.Time `json:"insight_date"`
+	Kind            string    `json:"kind"`
+	Content         string    `json:"content"`
+	ContextSnapshot []byte    `json:"context_snapshot"`
+	GeneratedAt     time.Time `json:"generated_at"`
+}
+
 type CheckIn struct {
 	ID         uuid.UUID `json:"id"`
 	UserID     uuid.UUID `json:"user_id"`

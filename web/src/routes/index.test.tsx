@@ -9,6 +9,7 @@ import {
   createMemoryHistory,
 } from "@tanstack/react-router";
 import type { Snapshot } from "@/lib/dashboard";
+import type { Insight } from "@/lib/ai";
 
 vi.mock("@/lib/auth", () => ({
   useAuth: () => ({
@@ -32,6 +33,27 @@ function makeSnap(overrides: Partial<Snapshot> = {}): Snapshot {
     dimensions_active: 4,
     ...overrides,
   };
+}
+
+function makeInsight(overrides: Partial<Insight> = {}): Insight {
+  return {
+    content: "Aprovecha tu energía alta hoy.",
+    available: true,
+    generated_at: "2026-06-11T10:00:00Z",
+    ...overrides,
+  };
+}
+
+function routeFetch(snap = makeSnap(), insight: Insight | "error" = makeInsight()) {
+  return vi.fn((url: string, _opts?: RequestInit) => {
+    if (url.includes("/ai/insight")) {
+      if (insight === "error") {
+        return Promise.resolve(new Response("boom", { status: 500 }));
+      }
+      return okJson(insight);
+    }
+    return okJson(snap);
+  });
 }
 
 function okJson(data: unknown) {
@@ -69,7 +91,7 @@ function renderPage() {
 }
 
 describe("DashboardPage", () => {
-  beforeEach(() => vi.stubGlobal("fetch", vi.fn(() => okJson(makeSnap()))));
+  beforeEach(() => vi.stubGlobal("fetch", routeFetch()));
   afterEach(() => vi.restoreAllMocks());
 
   it("muestra el saludo con el nombre y las dimensiones", async () => {
@@ -90,9 +112,9 @@ describe("DashboardPage", () => {
     expect(screen.getByText(/\$3,200\.00/)).toBeInTheDocument();
   });
 
-  it("muestra la banda de IA placeholder", async () => {
+  it("muestra el insight de IA cuando está disponible", async () => {
     renderPage();
-    expect(await screen.findByText(/Tu insight del día llega pronto/)).toBeInTheDocument();
+    expect(await screen.findByText(/Aprovecha tu energía alta hoy/)).toBeInTheDocument();
   });
 
   it("muestra aviso de metas vencidas", async () => {
@@ -101,7 +123,7 @@ describe("DashboardPage", () => {
   });
 
   it("muestra 'Sin check-in hoy' cuando checkin es null", async () => {
-    vi.stubGlobal("fetch", vi.fn(() => okJson(makeSnap({ checkin: null, dimensions_active: 3 }))));
+    vi.stubGlobal("fetch", routeFetch(makeSnap({ checkin: null, dimensions_active: 3 })));
     renderPage();
     expect(await screen.findByText(/Sin check-in hoy/)).toBeInTheDocument();
   });
@@ -110,5 +132,29 @@ describe("DashboardPage", () => {
     renderPage();
     const link = await screen.findByRole("link", { name: /Racha/ });
     expect(link.getAttribute("href")).toBe("/disciplina");
+  });
+
+  it("muestra el placeholder cuando la IA no está disponible", async () => {
+    vi.stubGlobal("fetch", routeFetch(makeSnap(), makeInsight({ available: false, content: null })));
+    renderPage();
+    expect(await screen.findByText(/Tu insight del día llega pronto/)).toBeInTheDocument();
+  });
+
+  it("muestra el estado de carga del insight", async () => {
+    const pending = new Promise<Response>(() => {});
+    vi.stubGlobal("fetch", vi.fn((url: string) => {
+      if (url.includes("/ai/insight")) return pending;
+      return okJson(makeSnap());
+    }));
+    renderPage();
+    expect(await screen.findByText(/Generando tu insight…/)).toBeInTheDocument();
+  });
+
+  it("un error de la IA no rompe el resto del dashboard", async () => {
+    vi.stubGlobal("fetch", routeFetch(makeSnap(), "error"));
+    renderPage();
+    expect(await screen.findByText(/Tu insight del día llega pronto/)).toBeInTheDocument();
+    // El resto del dashboard sigue visible (la racha llega igual).
+    expect(screen.getByText(/12/)).toBeInTheDocument();
   });
 });

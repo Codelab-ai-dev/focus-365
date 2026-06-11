@@ -10,6 +10,8 @@ type Config struct {
 	JWTSecret   string
 	Port        string
 	CORSOrigin  string
+	GroqAPIKey  string
+	GroqModel   string
 }
 
 func Load() (Config, error) {
@@ -18,6 +20,8 @@ func Load() (Config, error) {
 		JWTSecret:   os.Getenv("JWT_SECRET"),
 		Port:        os.Getenv("API_PORT"),
 		CORSOrigin:  os.Getenv("CORS_ORIGIN"),
+		GroqAPIKey:  os.Getenv("GROQ_API_KEY"),
+		GroqModel:   os.Getenv("GROQ_MODEL"),
 	}
 	if cfg.DatabaseURL == "" {
 		return Config{}, errors.New("DATABASE_URL is required")
@@ -30,6 +34,9 @@ func Load() (Config, error) {
 	}
 	if cfg.CORSOrigin == "" {
 		cfg.CORSOrigin = "http://localhost:5173"
+	}
+	if cfg.GroqModel == "" {
+		cfg.GroqModel = "llama-3.3-70b-versatile"
 	}
 	return cfg, nil
 }

@@ -26,6 +26,8 @@ func main() {
 		Pool:       pool,
 		JWTSecret:  cfg.JWTSecret,
 		CORSOrigin: cfg.CORSOrigin,
+		GroqAPIKey: cfg.GroqAPIKey,
+		GroqModel:  cfg.GroqModel,
 	})
 
 	log.Printf("Focus 365 API escuchando en :%s", cfg.Port)

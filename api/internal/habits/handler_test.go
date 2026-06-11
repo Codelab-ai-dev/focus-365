@@ -28,7 +28,7 @@ func newEnv(t *testing.T) *env {
 	r := chi.NewRouter()
 	r.Group(func(r chi.Router) {
 		r.Use(auth.RequireAuth(tm))
-		r.Mount("/habits", habits.Routes(habits.NewService(q, pool)))
+		r.Mount("/habits", habits.Routes(habits.NewService(q)))
 	})
 	return &env{h: r, auth: auth.NewService(q, tm)}
 }

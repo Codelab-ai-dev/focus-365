@@ -10,16 +10,14 @@ import (
 	"github.com/focus365/api/internal/store"
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 type Service struct {
-	q    *store.Queries
-	pool *pgxpool.Pool
+	q *store.Queries
 }
 
-func NewService(q *store.Queries, pool *pgxpool.Pool) *Service {
-	return &Service{q: q, pool: pool}
+func NewService(q *store.Queries) *Service {
+	return &Service{q: q}
 }
 
 // List devuelve los hábitos del usuario (activos o archivados) con sus rachas

@@ -28,7 +28,7 @@ func New(d Deps) http.Handler {
 	checkinSvc := checkin.NewService(q)
 	financeSvc := finance.NewService(q)
 	trainingSvc := training.NewService(q, d.Pool)
-	habitsSvc := habits.NewService(q, d.Pool)
+	habitsSvc := habits.NewService(q)
 
 	r := chi.NewRouter()
 	r.Use(middleware.RequestID)

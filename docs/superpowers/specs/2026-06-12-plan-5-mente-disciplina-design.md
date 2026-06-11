@@ -68,17 +68,21 @@ Ejemplo: logs `[lun, mar, mié, vie, sáb]`, hoy = domingo sin marcar → ancla 
 
 El **progreso del reto** (si `target_days` no es NULL) es presentación: `current_streak / target_days`. Al alcanzar la meta se marca el hito visual; no hay archivado automático.
 
+**Zona horaria:** `today` se recibe como parámetro `?today=YYYY-MM-DD` desde el cliente (calculado en su zona local), igual que el módulo `finance`. Si falta o es inválido, el server cae al día UTC. Así "hoy" y "ayer" coinciden con la realidad del usuario aunque el server corra en UTC.
+
 ## 4. API
 
 Paquete Go `internal/habits`, montado bajo `RequireAuth` en `/api/v1/habits`. Todo scoped por `user_id` del contexto; `{id}` ajeno o inexistente → 404.
 
 | # | Método y ruta | Request | Respuesta |
 |---|---|---|---|
-| 1 | `GET /api/v1/habits` | query `?archived=true` opcional | 200 lista de `Habit` (ver §5). Sin query: activos. Con `archived=true`: archivados |
-| 2 | `POST /api/v1/habits` | `{ "name": string, "target_days": int? }` | 201 `Habit` |
-| 3 | `POST /api/v1/habits/{id}/check` | `{ "day": "YYYY-MM-DD"?, "done": bool }` | 200 `Habit` recalculado |
-| 4 | `POST /api/v1/habits/{id}/archive` | — | 200 `Habit` |
+| 1 | `GET /api/v1/habits` | query `?today=YYYY-MM-DD`, `?archived=true` opcional | 200 lista de `Habit` (ver §5). Sin query: activos. Con `archived=true`: archivados |
+| 2 | `POST /api/v1/habits` | `?today=YYYY-MM-DD` + `{ "name": string, "target_days": int? }` | 201 `Habit` |
+| 3 | `POST /api/v1/habits/{id}/check` | `?today=YYYY-MM-DD` + `{ "day": "YYYY-MM-DD"?, "done": bool }` | 200 `Habit` recalculado |
+| 4 | `POST /api/v1/habits/{id}/archive` | `?today=YYYY-MM-DD` | 200 `Habit` |
 | 5 | `DELETE /api/v1/habits/{id}` | — | 204 |
+
+Todas las rutas que devuelven rachas aceptan `?today=YYYY-MM-DD` (zona del cliente, ver §3); si falta, el server usa el día UTC.
 
 Detalles:
 - **#2 create:** `name` requerido (trim); `target_days` opcional `omitempty,min=1`. **Idempotente por nombre activo:** si ya existe un hábito activo con ese nombre (sin distinguir mayúsculas), se devuelve ese mismo (vía `ON CONFLICT ... DO UPDATE SET name = habits.name RETURNING *`, igual que el catálogo de ejercicios en training). Siempre responde 201 con el `Habit`. Nota: `target_days` de un hábito ya existente no se modifica en el create idempotente.

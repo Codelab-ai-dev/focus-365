@@ -8,6 +8,7 @@ const LINKS: { to: string; label: string }[] = [
   { to: "/entrenamiento", label: "Entreno" },
   { to: "/disciplina", label: "Disciplina" },
   { to: "/metas", label: "Metas" },
+  { to: "/asistente", label: "Asistente" },
 ];
 
 // TopBar es la barra de navegación persistente. Sólo se muestra con usuario;

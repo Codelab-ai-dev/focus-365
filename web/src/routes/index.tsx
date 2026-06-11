@@ -84,15 +84,19 @@ function AIBand() {
   });
 
   const base =
-    "rounded-lg border border-dashed border-amber-brand bg-amber-brand/10 px-4 py-3 text-sm font-bold text-amber-brand";
+    "block rounded-lg border border-dashed border-amber-brand bg-amber-brand/10 px-4 py-3 text-sm font-bold text-amber-brand";
 
+  let content = "✦ Tu insight del día llega pronto";
   if (insightQ.isLoading) {
-    return <div className={base}>✦ Generando tu insight…</div>;
+    content = "✦ Generando tu insight…";
+  } else if (insightQ.data?.available && insightQ.data.content) {
+    content = `✦ ${insightQ.data.content}`;
   }
-  if (insightQ.data?.available && insightQ.data.content) {
-    return <div className={base}>✦ {insightQ.data.content}</div>;
-  }
-  return <div className={base}>✦ Tu insight del día llega pronto</div>;
+  return (
+    <Link to="/asistente" className={base}>
+      {content}
+    </Link>
+  );
 }
 
 function Card({

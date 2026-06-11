@@ -10,3 +10,22 @@ export type Insight = {
 export function getInsight(): Promise<Insight> {
   return apiFetch<Insight>(`/api/v1/ai/insight?today=${todayString()}`);
 }
+
+export type Message = {
+  role: string;
+  content: string;
+  created_at: string;
+};
+
+export function getMessages(): Promise<Message[]> {
+  return apiFetch<{ messages: Message[] }>("/api/v1/ai/messages").then(
+    (r) => r.messages
+  );
+}
+
+export function sendMessage(message: string): Promise<Message> {
+  return apiFetch<{ reply: Message }>("/api/v1/ai/chat", {
+    method: "POST",
+    body: JSON.stringify({ message }),
+  }).then((r) => r.reply);
+}

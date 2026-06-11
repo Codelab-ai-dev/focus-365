@@ -8,10 +8,6 @@ SELECT * FROM goals
 WHERE user_id = $1 AND status = $2
 ORDER BY created_at DESC;
 
--- name: GetGoal :one
-SELECT * FROM goals
-WHERE id = $1 AND user_id = $2;
-
 -- name: UpdateGoal :one
 UPDATE goals SET
     title     = COALESCE(sqlc.narg('title'), title),

@@ -64,32 +64,6 @@ func (q *Queries) DeleteGoal(ctx context.Context, arg DeleteGoalParams) (int64, 
 	return result.RowsAffected(), nil
 }
 
-const getGoal = `-- name: GetGoal :one
-SELECT id, user_id, title, dimension, status, progress, deadline, created_at FROM goals
-WHERE id = $1 AND user_id = $2
-`
-
-type GetGoalParams struct {
-	ID     uuid.UUID `json:"id"`
-	UserID uuid.UUID `json:"user_id"`
-}
-
-func (q *Queries) GetGoal(ctx context.Context, arg GetGoalParams) (Goal, error) {
-	row := q.db.QueryRow(ctx, getGoal, arg.ID, arg.UserID)
-	var i Goal
-	err := row.Scan(
-		&i.ID,
-		&i.UserID,
-		&i.Title,
-		&i.Dimension,
-		&i.Status,
-		&i.Progress,
-		&i.Deadline,
-		&i.CreatedAt,
-	)
-	return i, err
-}
-
 const listGoals = `-- name: ListGoals :many
 SELECT id, user_id, title, dimension, status, progress, deadline, created_at FROM goals
 WHERE user_id = $1 AND status = $2

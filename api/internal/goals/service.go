@@ -3,6 +3,7 @@ package goals
 import (
 	"context"
 	"errors"
+	"strings"
 	"time"
 
 	"github.com/focus365/api/internal/store"
@@ -35,7 +36,7 @@ func (s *Service) List(ctx context.Context, userID uuid.UUID, status string, tod
 func (s *Service) Create(ctx context.Context, userID uuid.UUID, in GoalInput, today time.Time) (*Goal, error) {
 	g, err := s.q.CreateGoal(ctx, store.CreateGoalParams{
 		UserID:    userID,
-		Title:     in.Title,
+		Title:     strings.TrimSpace(in.Title),
 		Dimension: in.Dimension,
 		Deadline:  in.Deadline,
 	})
@@ -47,6 +48,10 @@ func (s *Service) Create(ctx context.Context, userID uuid.UUID, in GoalInput, to
 
 // Patch aplica los campos presentes. (nil, nil) si la meta no es del usuario.
 func (s *Service) Patch(ctx context.Context, userID, id uuid.UUID, p GoalPatch, today time.Time) (*Goal, error) {
+	if p.Title != nil {
+		t := strings.TrimSpace(*p.Title)
+		p.Title = &t
+	}
 	g, err := s.q.UpdateGoal(ctx, store.UpdateGoalParams{
 		ID:          id,
 		UserID:      userID,

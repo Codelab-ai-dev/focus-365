@@ -7,6 +7,7 @@ import (
 	"github.com/focus365/api/internal/auth"
 	"github.com/focus365/api/internal/checkin"
 	"github.com/focus365/api/internal/finance"
+	"github.com/focus365/api/internal/goals"
 	"github.com/focus365/api/internal/habits"
 	"github.com/focus365/api/internal/store"
 	"github.com/focus365/api/internal/training"
@@ -29,6 +30,7 @@ func New(d Deps) http.Handler {
 	financeSvc := finance.NewService(q)
 	trainingSvc := training.NewService(q, d.Pool)
 	habitsSvc := habits.NewService(q)
+	goalsSvc := goals.NewService(q)
 
 	r := chi.NewRouter()
 	r.Use(middleware.RequestID)
@@ -46,6 +48,7 @@ func New(d Deps) http.Handler {
 			r.Mount("/finances", finance.Routes(financeSvc))
 			r.Mount("/training", training.Routes(trainingSvc))
 			r.Mount("/habits", habits.Routes(habitsSvc))
+			r.Mount("/goals", goals.Routes(goalsSvc))
 		})
 	})
 

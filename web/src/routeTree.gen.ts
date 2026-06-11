@@ -16,6 +16,7 @@ import { Route as FinanzasRouteImport } from './routes/finanzas'
 import { Route as EntrenamientoRouteImport } from './routes/entrenamiento'
 import { Route as DisciplinaRouteImport } from './routes/disciplina'
 import { Route as CheckInRouteImport } from './routes/check-in'
+import { Route as AsistenteRouteImport } from './routes/asistente'
 import { Route as IndexRouteImport } from './routes/index'
 
 const RegisterRoute = RegisterRouteImport.update({
@@ -53,6 +54,11 @@ const CheckInRoute = CheckInRouteImport.update({
   path: '/check-in',
   getParentRoute: () => rootRouteImport,
 } as any)
+const AsistenteRoute = AsistenteRouteImport.update({
+  id: '/asistente',
+  path: '/asistente',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const IndexRoute = IndexRouteImport.update({
   id: '/',
   path: '/',
@@ -61,6 +67,7 @@ const IndexRoute = IndexRouteImport.update({
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
+  '/asistente': typeof AsistenteRoute
   '/check-in': typeof CheckInRoute
   '/disciplina': typeof DisciplinaRoute
   '/entrenamiento': typeof EntrenamientoRoute
@@ -71,6 +78,7 @@ export interface FileRoutesByFullPath {
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
+  '/asistente': typeof AsistenteRoute
   '/check-in': typeof CheckInRoute
   '/disciplina': typeof DisciplinaRoute
   '/entrenamiento': typeof EntrenamientoRoute
@@ -82,6 +90,7 @@ export interface FileRoutesByTo {
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
+  '/asistente': typeof AsistenteRoute
   '/check-in': typeof CheckInRoute
   '/disciplina': typeof DisciplinaRoute
   '/entrenamiento': typeof EntrenamientoRoute
@@ -94,6 +103,7 @@ export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
   fullPaths:
     | '/'
+    | '/asistente'
     | '/check-in'
     | '/disciplina'
     | '/entrenamiento'
@@ -104,6 +114,7 @@ export interface FileRouteTypes {
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
+    | '/asistente'
     | '/check-in'
     | '/disciplina'
     | '/entrenamiento'
@@ -114,6 +125,7 @@ export interface FileRouteTypes {
   id:
     | '__root__'
     | '/'
+    | '/asistente'
     | '/check-in'
     | '/disciplina'
     | '/entrenamiento'
@@ -125,6 +137,7 @@ export interface FileRouteTypes {
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
+  AsistenteRoute: typeof AsistenteRoute
   CheckInRoute: typeof CheckInRoute
   DisciplinaRoute: typeof DisciplinaRoute
   EntrenamientoRoute: typeof EntrenamientoRoute
@@ -185,6 +198,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof CheckInRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/asistente': {
+      id: '/asistente'
+      path: '/asistente'
+      fullPath: '/asistente'
+      preLoaderRoute: typeof AsistenteRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/': {
       id: '/'
       path: '/'
@@ -197,6 +217,7 @@ declare module '@tanstack/react-router' {
 
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
+  AsistenteRoute: AsistenteRoute,
   CheckInRoute: CheckInRoute,
   DisciplinaRoute: DisciplinaRoute,
   EntrenamientoRoute: EntrenamientoRoute,

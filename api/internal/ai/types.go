@@ -10,3 +10,10 @@ type Insight struct {
 	Available   bool      `json:"available"`
 	GeneratedAt time.Time `json:"generated_at"`
 }
+
+// Message es un mensaje del chat (vista que se serializa a JSON).
+type Message struct {
+	Role      string    `json:"role"`
+	Content   string    `json:"content"`
+	CreatedAt time.Time `json:"created_at"`
+}

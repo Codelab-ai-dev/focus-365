@@ -29,11 +29,20 @@ type fakeCompleter struct {
 	out    string
 	err    error
 	called int
+
+	chatOut    string
+	chatErr    error
+	chatCalled int
 }
 
 func (f *fakeCompleter) Complete(ctx context.Context, system, user string) (string, error) {
 	f.called++
 	return f.out, f.err
+}
+
+func (f *fakeCompleter) Chat(ctx context.Context, system string, history []ai.ChatMsg) (string, error) {
+	f.chatCalled++
+	return f.chatOut, f.chatErr
 }
 
 type env struct {
@@ -57,11 +66,14 @@ func newEnv(t *testing.T, hasKey bool, comp *fakeCompleter) *env {
 	dash := dashboard.NewService(ci, fi, tr, ha, go_)
 
 	svc := ai.NewService(dash, q, comp, hasKey)
+	chatCtx := ai.NewChatContextBuilder(dash, fi, ci)
+	chatStore := ai.NewChatStore(q, pool)
+	chatSvc := ai.NewChatService(chatCtx, chatStore, comp, hasKey)
 
 	r := chi.NewRouter()
 	r.Group(func(r chi.Router) {
 		r.Use(auth.RequireAuth(tm))
-		r.Mount("/ai", ai.Routes(svc))
+		r.Mount("/ai", ai.Routes(svc, chatSvc))
 	})
 	return &env{h: r, auth: auth.NewService(q, tm), comp: comp, q: q}
 }

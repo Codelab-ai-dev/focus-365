@@ -20,6 +20,14 @@ type AiInsight struct {
 	GeneratedAt     time.Time `json:"generated_at"`
 }
 
+type AiMessage struct {
+	ID        uuid.UUID `json:"id"`
+	UserID    uuid.UUID `json:"user_id"`
+	Role      string    `json:"role"`
+	Content   string    `json:"content"`
+	CreatedAt time.Time `json:"created_at"`
+}
+
 type CheckIn struct {
 	ID         uuid.UUID `json:"id"`
 	UserID     uuid.UUID `json:"user_id"`

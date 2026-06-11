@@ -40,6 +40,21 @@ cd web && npm install && npm run dev  # web en :5173
 - API: http://localhost:8080/api/v1/health
 - Web: http://localhost:5173
 
+## Tests
+
+```bash
+# Backend (Go). Requiere Postgres de pruebas en :5544 (docker compose up db).
+cd api && make check        # vet + test
+cd api && make test         # solo tests
+
+# Frontend
+cd web && npm test
+```
+
+> Los tests del API usan `-p 1` (un paquete a la vez): comparten una sola DB de
+> pruebas y cada paquete trunca `users`, así que correrlos en paralelo se pisan
+> entre sí. El `Makefile` ya lo aplica.
+
 ## Módulos (v1)
 
 Check-in diario (4D) · Finanzas (superávit por ciclo de pago) · Entrenamiento (rutina + log + progresiones) · Mente/Disciplina (retos + rachas) · Metas · Dashboard · Asistente IA.

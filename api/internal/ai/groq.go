@@ -61,16 +61,38 @@ type chatResponse struct {
 	} `json:"choices"`
 }
 
+// ChatMsg es un turno de la conversación (rol + contenido) para el modo chat.
+type ChatMsg struct {
+	Role    string
+	Content string
+}
+
 // Complete envía system+user a Groq y devuelve choices[0].message.content.
 func (c *GroqClient) Complete(ctx context.Context, system, user string) (string, error) {
+	return c.send(ctx, []chatMessage{
+		{Role: "system", Content: system},
+		{Role: "user", Content: user},
+	}, 200)
+}
+
+// Chat envía el system + el historial completo (estilo OpenAI) y devuelve la
+// respuesta. max_tokens un poco mayor que Complete para respuestas conversacionales.
+func (c *GroqClient) Chat(ctx context.Context, system string, history []ChatMsg) (string, error) {
+	msgs := make([]chatMessage, 0, len(history)+1)
+	msgs = append(msgs, chatMessage{Role: "system", Content: system})
+	for _, m := range history {
+		msgs = append(msgs, chatMessage{Role: m.Role, Content: m.Content})
+	}
+	return c.send(ctx, msgs, 400)
+}
+
+// send hace el POST a /chat/completions y devuelve el contenido del primer choice.
+func (c *GroqClient) send(ctx context.Context, msgs []chatMessage, maxTokens int) (string, error) {
 	reqBody, err := json.Marshal(chatRequest{
-		Model: c.model,
-		Messages: []chatMessage{
-			{Role: "system", Content: system},
-			{Role: "user", Content: user},
-		},
+		Model:       c.model,
+		Messages:    msgs,
 		Temperature: 0.7,
-		MaxTokens:   200,
+		MaxTokens:   maxTokens,
 	})
 	if err != nil {
 		return "", err

@@ -96,6 +96,12 @@ func fieldLabel(field string) string {
 		return "la categoría"
 	case "Remark":
 		return "la nota"
+	case "TargetDays":
+		return "la meta de días"
+	case "Day":
+		return "el día"
+	case "Done":
+		return "el estado"
 	case "Exercise":
 		return "el ejercicio"
 	case "Sets":

@@ -29,6 +29,12 @@ function HomePage() {
       >
         Check-in de hoy
       </Link>
+      <Link
+        to="/finanzas"
+        className="mt-4 ml-2 inline-block rounded-lg border border-ink-700 px-4 py-2 text-sm font-bold text-sand-400"
+      >
+        Finanzas
+      </Link>
     </div>
   );
 }

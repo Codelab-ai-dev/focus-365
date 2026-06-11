@@ -6,6 +6,7 @@ import (
 
 	"github.com/focus365/api/internal/auth"
 	"github.com/focus365/api/internal/checkin"
+	"github.com/focus365/api/internal/dashboard"
 	"github.com/focus365/api/internal/finance"
 	"github.com/focus365/api/internal/goals"
 	"github.com/focus365/api/internal/habits"
@@ -49,6 +50,8 @@ func New(d Deps) http.Handler {
 			r.Mount("/training", training.Routes(trainingSvc))
 			r.Mount("/habits", habits.Routes(habitsSvc))
 			r.Mount("/goals", goals.Routes(goalsSvc))
+			dashboardSvc := dashboard.NewService(checkinSvc, financeSvc, trainingSvc, habitsSvc, goalsSvc)
+			r.Mount("/dashboard", dashboard.Routes(dashboardSvc))
 		})
 	})
 

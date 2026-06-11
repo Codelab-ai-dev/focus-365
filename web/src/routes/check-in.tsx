@@ -1,5 +1,5 @@
 import { createFileRoute, useNavigate, Link } from "@tanstack/react-router";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useAuth } from "@/lib/auth";
 import { getToday, list, upsert, todayString, type CheckIn } from "@/lib/checkins";
@@ -33,14 +33,17 @@ function CheckInPage() {
   const [note, setNote] = useState("");
   const [error, setError] = useState<string | null>(null);
 
-  // Pre-rellena el formulario con el check-in de hoy si existe.
+  // Pre-rellena el formulario una sola vez con el check-in de hoy, para no
+  // pisar lo que el usuario esté editando si la query se refresca.
+  const prefilled = useRef(false);
   useEffect(() => {
     const ci = todayQuery.data;
-    if (ci) {
+    if (ci && !prefilled.current) {
       setMood(ci.mood);
       setEnergy(ci.energy);
       setDiscipline(ci.discipline);
       setNote(ci.note);
+      prefilled.current = true;
     }
   }, [todayQuery.data]);
 

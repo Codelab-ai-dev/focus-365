@@ -97,4 +97,59 @@ describe("CheckInPage", () => {
       expect(posted).toBe(true);
     });
   });
+
+  it("pre-rellena el formulario con el check-in de hoy", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((url: string) => {
+        if (url.includes("/today")) {
+          return Promise.resolve(
+            new Response(
+              JSON.stringify({
+                id: "c1", date: "2026-06-10", mood: 8, energy: 7,
+                discipline: 9, note: "gran día", created_at: "", updated_at: "",
+              }),
+              { status: 200 }
+            )
+          );
+        }
+        return Promise.resolve(new Response("[]", { status: 200 }));
+      })
+    );
+
+    renderPage();
+
+    const mood = (await screen.findByLabelText("Ánimo")) as HTMLInputElement;
+    await waitFor(() => expect(mood.value).toBe("8"));
+    expect((screen.getByLabelText("Energía") as HTMLInputElement).value).toBe("7");
+    expect((screen.getByLabelText("Disciplina") as HTMLInputElement).value).toBe("9");
+    expect((screen.getByLabelText("Nota") as HTMLTextAreaElement).value).toBe("gran día");
+  });
+
+  it("muestra el historial de check-ins", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((url: string) => {
+        if (url.includes("/today")) {
+          return Promise.resolve(new Response("null", { status: 200 }));
+        }
+        return Promise.resolve(
+          new Response(
+            JSON.stringify([
+              {
+                id: "c1", date: "2026-06-09", mood: 4, energy: 5,
+                discipline: 6, note: "", created_at: "", updated_at: "",
+              },
+            ]),
+            { status: 200 }
+          )
+        );
+      })
+    );
+
+    renderPage();
+
+    expect(await screen.findByText("2026-06-09")).toBeInTheDocument();
+    expect(screen.getByText("Á4 · E5 · D6")).toBeInTheDocument();
+  });
 });

@@ -29,6 +29,22 @@ type Exercise struct {
 	CreatedAt time.Time `json:"created_at"`
 }
 
+type Habit struct {
+	ID         uuid.UUID  `json:"id"`
+	UserID     uuid.UUID  `json:"user_id"`
+	Name       string     `json:"name"`
+	TargetDays *int32     `json:"target_days"`
+	ArchivedAt *time.Time `json:"archived_at"`
+	CreatedAt  time.Time  `json:"created_at"`
+}
+
+type HabitLog struct {
+	ID        uuid.UUID `json:"id"`
+	HabitID   uuid.UUID `json:"habit_id"`
+	Day       time.Time `json:"day"`
+	CreatedAt time.Time `json:"created_at"`
+}
+
 type Transaction struct {
 	ID         uuid.UUID `json:"id"`
 	UserID     uuid.UUID `json:"user_id"`

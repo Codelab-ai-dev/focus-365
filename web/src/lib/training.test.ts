@@ -36,7 +36,9 @@ describe("lib/training", () => {
   });
 
   it("createExercise hace POST con el nombre", async () => {
-    const fetchMock = vi.fn(() => okJson({ id: "e1", name: "Sentadilla" }, 201));
+    const fetchMock = vi.fn((_url: string, _opts?: RequestInit) =>
+      okJson({ id: "e1", name: "Sentadilla" }, 201)
+    );
     vi.stubGlobal("fetch", fetchMock);
     await createExercise("Sentadilla");
     const [url, opts] = fetchMock.mock.calls[0];
@@ -47,7 +49,9 @@ describe("lib/training", () => {
 
   it("createWorkout hace POST con el body y manda Bearer si hay token", async () => {
     setAccessToken("tok123");
-    const fetchMock = vi.fn(() => okJson({ id: "w1" }, 201));
+    const fetchMock = vi.fn((_url: string, _opts?: RequestInit) =>
+      okJson({ id: "w1" }, 201)
+    );
     vi.stubGlobal("fetch", fetchMock);
     await createWorkout({
       date: "2026-06-11",
@@ -63,7 +67,7 @@ describe("lib/training", () => {
   });
 
   it("listWorkouts arma el querystring de rango", async () => {
-    const fetchMock = vi.fn(() => okJson([]));
+    const fetchMock = vi.fn((_url: string, _opts?: RequestInit) => okJson([]));
     vi.stubGlobal("fetch", fetchMock);
     await listWorkouts("2026-06-01", "2026-06-30");
     expect(fetchMock.mock.calls[0][0]).toBe(
@@ -72,7 +76,9 @@ describe("lib/training", () => {
   });
 
   it("removeWorkout hace DELETE a la sesión", async () => {
-    const fetchMock = vi.fn(() => Promise.resolve(new Response(null, { status: 204 })));
+    const fetchMock = vi.fn((_url: string, _opts?: RequestInit) =>
+      Promise.resolve(new Response(null, { status: 204 }))
+    );
     vi.stubGlobal("fetch", fetchMock);
     await removeWorkout("w9");
     const [url, opts] = fetchMock.mock.calls[0];

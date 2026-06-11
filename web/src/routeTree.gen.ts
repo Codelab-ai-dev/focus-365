@@ -12,6 +12,7 @@ import { Route as rootRouteImport } from './routes/__root'
 import { Route as RegisterRouteImport } from './routes/register'
 import { Route as LoginRouteImport } from './routes/login'
 import { Route as FinanzasRouteImport } from './routes/finanzas'
+import { Route as EntrenamientoRouteImport } from './routes/entrenamiento'
 import { Route as CheckInRouteImport } from './routes/check-in'
 import { Route as IndexRouteImport } from './routes/index'
 
@@ -30,6 +31,11 @@ const FinanzasRoute = FinanzasRouteImport.update({
   path: '/finanzas',
   getParentRoute: () => rootRouteImport,
 } as any)
+const EntrenamientoRoute = EntrenamientoRouteImport.update({
+  id: '/entrenamiento',
+  path: '/entrenamiento',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const CheckInRoute = CheckInRouteImport.update({
   id: '/check-in',
   path: '/check-in',
@@ -44,6 +50,7 @@ const IndexRoute = IndexRouteImport.update({
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/check-in': typeof CheckInRoute
+  '/entrenamiento': typeof EntrenamientoRoute
   '/finanzas': typeof FinanzasRoute
   '/login': typeof LoginRoute
   '/register': typeof RegisterRoute
@@ -51,6 +58,7 @@ export interface FileRoutesByFullPath {
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/check-in': typeof CheckInRoute
+  '/entrenamiento': typeof EntrenamientoRoute
   '/finanzas': typeof FinanzasRoute
   '/login': typeof LoginRoute
   '/register': typeof RegisterRoute
@@ -59,21 +67,42 @@ export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
   '/check-in': typeof CheckInRoute
+  '/entrenamiento': typeof EntrenamientoRoute
   '/finanzas': typeof FinanzasRoute
   '/login': typeof LoginRoute
   '/register': typeof RegisterRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
-  fullPaths: '/' | '/check-in' | '/finanzas' | '/login' | '/register'
+  fullPaths:
+    | '/'
+    | '/check-in'
+    | '/entrenamiento'
+    | '/finanzas'
+    | '/login'
+    | '/register'
   fileRoutesByTo: FileRoutesByTo
-  to: '/' | '/check-in' | '/finanzas' | '/login' | '/register'
-  id: '__root__' | '/' | '/check-in' | '/finanzas' | '/login' | '/register'
+  to:
+    | '/'
+    | '/check-in'
+    | '/entrenamiento'
+    | '/finanzas'
+    | '/login'
+    | '/register'
+  id:
+    | '__root__'
+    | '/'
+    | '/check-in'
+    | '/entrenamiento'
+    | '/finanzas'
+    | '/login'
+    | '/register'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   CheckInRoute: typeof CheckInRoute
+  EntrenamientoRoute: typeof EntrenamientoRoute
   FinanzasRoute: typeof FinanzasRoute
   LoginRoute: typeof LoginRoute
   RegisterRoute: typeof RegisterRoute
@@ -102,6 +131,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof FinanzasRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/entrenamiento': {
+      id: '/entrenamiento'
+      path: '/entrenamiento'
+      fullPath: '/entrenamiento'
+      preLoaderRoute: typeof EntrenamientoRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/check-in': {
       id: '/check-in'
       path: '/check-in'
@@ -122,6 +158,7 @@ declare module '@tanstack/react-router' {
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   CheckInRoute: CheckInRoute,
+  EntrenamientoRoute: EntrenamientoRoute,
   FinanzasRoute: FinanzasRoute,
   LoginRoute: LoginRoute,
   RegisterRoute: RegisterRoute,

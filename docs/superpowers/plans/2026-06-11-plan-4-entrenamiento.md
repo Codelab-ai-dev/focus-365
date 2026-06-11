@@ -201,6 +201,7 @@ import (
 
 	"github.com/focus365/api/internal/store"
 	"github.com/focus365/api/internal/testutil"
+	"github.com/jackc/pgx/v5/pgtype"
 )
 
 func ptrInt32(v int32) *int32 { return &v }
@@ -272,10 +273,11 @@ func TestTrainingStore(t *testing.T) {
 		t.Errorf("nombre = %q, want Sentadilla", sets[0].ExerciseName)
 	}
 
-	// ListWorkouts filtra por rango.
-	from := time.Date(2026, 6, 1, 0, 0, 0, 0, time.UTC)
-	to := time.Date(2026, 6, 30, 0, 0, 0, 0, time.UTC)
-	ws, err := q.ListWorkouts(ctx, store.ListWorkoutsParams{UserID: user.ID, From: &from, To: &to})
+	// ListWorkouts filtra por rango. From/To son pgtype.Date (el narg con cast
+	// ::date genera pgtype.Date, no *time.Time).
+	from := pgtype.Date{Time: time.Date(2026, 6, 1, 0, 0, 0, 0, time.UTC), Valid: true}
+	to := pgtype.Date{Time: time.Date(2026, 6, 30, 0, 0, 0, 0, time.UTC), Valid: true}
+	ws, err := q.ListWorkouts(ctx, store.ListWorkoutsParams{UserID: user.ID, From: from, To: to})
 	if err != nil {
 		t.Fatalf("ListWorkouts: %v", err)
 	}
@@ -400,6 +402,7 @@ import (
 	"github.com/focus365/api/internal/store"
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
@@ -502,7 +505,9 @@ func (s *Service) GetWorkout(ctx context.Context, userID, id uuid.UUID) (*Workou
 // ListWorkouts trae el historial por rango (from/to opcionales) con sus series,
 // evitando N+1 con una sola consulta de series para todas las sesiones.
 func (s *Service) ListWorkouts(ctx context.Context, userID uuid.UUID, from, to *time.Time) ([]Workout, error) {
-	rows, err := s.q.ListWorkouts(ctx, store.ListWorkoutsParams{UserID: userID, From: from, To: to})
+	rows, err := s.q.ListWorkouts(ctx, store.ListWorkoutsParams{
+		UserID: userID, From: toPgDate(from), To: toPgDate(to),
+	})
 	if err != nil {
 		return nil, err
 	}
@@ -551,6 +556,15 @@ func workoutView(w store.Workout, sets []WorkoutSet) *Workout {
 		Sets:      sets,
 		CreatedAt: w.CreatedAt,
 	}
+}
+
+// toPgDate convierte un *time.Time (filtro opcional) al pgtype.Date que espera
+// ListWorkoutsParams. nil → NULL (sin filtro).
+func toPgDate(t *time.Time) pgtype.Date {
+	if t == nil {
+		return pgtype.Date{Valid: false}
+	}
+	return pgtype.Date{Time: *t, Valid: true}
 }
 ```
 

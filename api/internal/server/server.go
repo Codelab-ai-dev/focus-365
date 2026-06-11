@@ -8,6 +8,7 @@ import (
 	"github.com/focus365/api/internal/checkin"
 	"github.com/focus365/api/internal/finance"
 	"github.com/focus365/api/internal/store"
+	"github.com/focus365/api/internal/training"
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -25,6 +26,7 @@ func New(d Deps) http.Handler {
 	authSvc := auth.NewService(q, tm)
 	checkinSvc := checkin.NewService(q)
 	financeSvc := finance.NewService(q)
+	trainingSvc := training.NewService(q, d.Pool)
 
 	r := chi.NewRouter()
 	r.Use(middleware.RequestID)
@@ -40,6 +42,7 @@ func New(d Deps) http.Handler {
 			r.Use(auth.RequireAuth(tm))
 			r.Mount("/checkins", checkin.Routes(checkinSvc))
 			r.Mount("/finances", finance.Routes(financeSvc))
+			r.Mount("/training", training.Routes(trainingSvc))
 		})
 	})
 

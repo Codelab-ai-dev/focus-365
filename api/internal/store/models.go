@@ -22,6 +22,13 @@ type CheckIn struct {
 	UpdatedAt  time.Time `json:"updated_at"`
 }
 
+type Exercise struct {
+	ID        uuid.UUID `json:"id"`
+	UserID    uuid.UUID `json:"user_id"`
+	Name      string    `json:"name"`
+	CreatedAt time.Time `json:"created_at"`
+}
+
 type Transaction struct {
 	ID         uuid.UUID `json:"id"`
 	UserID     uuid.UUID `json:"user_id"`
@@ -43,4 +50,23 @@ type User struct {
 	PasswordHash string    `json:"password_hash"`
 	Name         string    `json:"name"`
 	CreatedAt    time.Time `json:"created_at"`
+}
+
+type Workout struct {
+	ID        uuid.UUID `json:"id"`
+	UserID    uuid.UUID `json:"user_id"`
+	Date      time.Time `json:"date"`
+	Type      string    `json:"type"`
+	Note      string    `json:"note"`
+	CreatedAt time.Time `json:"created_at"`
+}
+
+type WorkoutSet struct {
+	ID          uuid.UUID `json:"id"`
+	WorkoutID   uuid.UUID `json:"workout_id"`
+	ExerciseID  uuid.UUID `json:"exercise_id"`
+	Position    int32     `json:"position"`
+	Reps        *int32    `json:"reps"`
+	WeightGrams *int32    `json:"weight_grams"`
+	CreatedAt   time.Time `json:"created_at"`
 }

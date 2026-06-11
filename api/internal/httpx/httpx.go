@@ -96,6 +96,14 @@ func fieldLabel(field string) string {
 		return "la categoría"
 	case "Remark":
 		return "la nota"
+	case "Exercise":
+		return "el ejercicio"
+	case "Sets":
+		return "las series"
+	case "Reps":
+		return "las repeticiones"
+	case "WeightGrams":
+		return "el peso"
 	default:
 		return field
 	}

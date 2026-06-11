@@ -5,6 +5,7 @@ import (
 	"net/http"
 
 	"github.com/focus365/api/internal/auth"
+	"github.com/focus365/api/internal/checkin"
 	"github.com/focus365/api/internal/store"
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
@@ -21,6 +22,7 @@ func New(d Deps) http.Handler {
 	q := store.New(d.Pool)
 	tm := auth.NewTokenManager(d.JWTSecret)
 	authSvc := auth.NewService(q, tm)
+	checkinSvc := checkin.NewService(q)
 
 	r := chi.NewRouter()
 	r.Use(middleware.RequestID)
@@ -32,6 +34,10 @@ func New(d Deps) http.Handler {
 	r.Route("/api/v1", func(r chi.Router) {
 		r.Get("/health", health)
 		r.Mount("/auth", auth.Routes(authSvc))
+		r.Group(func(r chi.Router) {
+			r.Use(auth.RequireAuth(tm))
+			r.Mount("/checkins", checkin.Routes(checkinSvc))
+		})
 	})
 
 	return r

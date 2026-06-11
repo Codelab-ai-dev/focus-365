@@ -47,6 +47,12 @@ function HomePage() {
       >
         Disciplina
       </Link>
+      <Link
+        to="/metas"
+        className="mt-4 ml-2 inline-block rounded-lg border border-ink-700 px-4 py-2 text-sm font-bold text-sand-400"
+      >
+        Metas
+      </Link>
     </div>
   );
 }

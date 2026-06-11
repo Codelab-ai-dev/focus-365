@@ -78,6 +78,9 @@ function AIBand() {
     queryKey: ["ai-insight", todayString()],
     queryFn: getInsight,
     enabled: !!user,
+    // Si la IA falla, degradamos al placeholder sin reintentar: la banda nunca
+    // debe quedarse cargando ni golpear repetidamente un endpoint caído.
+    retry: false,
   });
 
   const base =

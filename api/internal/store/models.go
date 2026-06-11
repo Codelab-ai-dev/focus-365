@@ -10,6 +10,33 @@ import (
 	"github.com/google/uuid"
 )
 
+type CheckIn struct {
+	ID         uuid.UUID `json:"id"`
+	UserID     uuid.UUID `json:"user_id"`
+	Date       time.Time `json:"date"`
+	Mood       int32     `json:"mood"`
+	Energy     int32     `json:"energy"`
+	Discipline int32     `json:"discipline"`
+	Note       string    `json:"note"`
+	CreatedAt  time.Time `json:"created_at"`
+	UpdatedAt  time.Time `json:"updated_at"`
+}
+
+type Transaction struct {
+	ID         uuid.UUID `json:"id"`
+	UserID     uuid.UUID `json:"user_id"`
+	Type       string    `json:"type"`
+	Amount     int64     `json:"amount"`
+	OccurredOn time.Time `json:"occurred_on"`
+	Cycle      time.Time `json:"cycle"`
+	Category   string    `json:"category"`
+	Remark     string    `json:"remark"`
+	Source     string    `json:"source"`
+	ExternalID *string   `json:"external_id"`
+	CreatedAt  time.Time `json:"created_at"`
+	UpdatedAt  time.Time `json:"updated_at"`
+}
+
 type User struct {
 	ID           uuid.UUID `json:"id"`
 	Email        string    `json:"email"`

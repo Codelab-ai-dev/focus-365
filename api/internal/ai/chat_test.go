@@ -51,13 +51,18 @@ func (m *memStore) ListMessages(ctx context.Context, userID uuid.UUID) ([]store.
 	return out, nil
 }
 
-func (m *memStore) CreateMessage(ctx context.Context, arg store.CreateMessageParams) (store.AiMessage, error) {
-	row := store.AiMessage{
-		ID: uuid.New(), UserID: arg.UserID, Role: arg.Role, Content: arg.Content,
+func (m *memStore) CreatePair(ctx context.Context, userID uuid.UUID, userText, assistantText string) (store.AiMessage, error) {
+	user := store.AiMessage{
+		ID: uuid.New(), UserID: userID, Role: "user", Content: userText,
 		CreatedAt: time.Now().Add(time.Duration(len(m.rows)) * time.Millisecond),
 	}
-	m.rows = append(m.rows, row)
-	return row, nil
+	m.rows = append(m.rows, user)
+	assistant := store.AiMessage{
+		ID: uuid.New(), UserID: userID, Role: "assistant", Content: assistantText,
+		CreatedAt: time.Now().Add(time.Duration(len(m.rows)) * time.Millisecond),
+	}
+	m.rows = append(m.rows, assistant)
+	return assistant, nil
 }
 
 func TestChatSendPersistsPairAndReturnsAssistant(t *testing.T) {

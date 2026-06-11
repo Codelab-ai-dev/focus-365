@@ -85,6 +85,24 @@ func TestChatValidationRejectsEmpty(t *testing.T) {
 	}
 }
 
+func TestChatValidationLengthCountsRunes(t *testing.T) {
+	comp := &fakeCompleter{chatOut: "ok"}
+	e := newEnv(t, true, comp)
+	_, tok := e.user(t, "len@b.com")
+
+	// 2000 acentos = 4000 bytes pero 2000 caracteres: debe pasar (no 400 por bytes).
+	okMsg := strings.Repeat("á", 2000)
+	if rec, _ := postChat(t, e.h, tok, `{"message":"`+okMsg+`"}`); rec.Code != http.StatusOK {
+		t.Errorf("2000 caracteres code = %d, want 200", rec.Code)
+	}
+
+	// 2001 caracteres: debe rechazarse con 400.
+	tooLong := strings.Repeat("a", 2001)
+	if rec, _ := postChat(t, e.h, tok, `{"message":"`+tooLong+`"}`); rec.Code != http.StatusBadRequest {
+		t.Errorf("2001 caracteres code = %d, want 400", rec.Code)
+	}
+}
+
 func TestChatNoKeyDegrades(t *testing.T) {
 	e := newEnv(t, false, &fakeCompleter{chatOut: "no usar"})
 	_, tok := e.user(t, "nokeychat@b.com")

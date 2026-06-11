@@ -22,10 +22,12 @@ type chatCompleter interface {
 	Chat(ctx context.Context, system string, history []ChatMsg) (string, error)
 }
 
-// messageStore es la porción de store.Queries para los mensajes del chat.
+// messageStore lee el historial y persiste el par usuario+asistente del chat.
+// La implementación de producción (pgChatStore) hace la escritura en una
+// transacción para no dejar mensajes huérfanos.
 type messageStore interface {
 	ListMessages(ctx context.Context, userID uuid.UUID) ([]store.AiMessage, error)
-	CreateMessage(ctx context.Context, arg store.CreateMessageParams) (store.AiMessage, error)
+	CreatePair(ctx context.Context, userID uuid.UUID, userText, assistantText string) (store.AiMessage, error)
 }
 
 // contextBuilder abstrae el armado del contexto (lo implementa chatContextBuilder).
@@ -80,15 +82,9 @@ func (s *ChatService) Send(ctx context.Context, userID uuid.UUID, text string, t
 		return nil, ErrUnavailable
 	}
 
-	// Solo ante éxito persistimos el par (evita mensajes de usuario huérfanos).
-	if _, err := s.store.CreateMessage(ctx, store.CreateMessageParams{
-		UserID: userID, Role: "user", Content: text,
-	}); err != nil {
-		return nil, err
-	}
-	assistant, err := s.store.CreateMessage(ctx, store.CreateMessageParams{
-		UserID: userID, Role: "assistant", Content: reply,
-	})
+	// Solo ante éxito persistimos el par, y de forma atómica (evita mensajes de
+	// usuario huérfanos si fallara el segundo insert).
+	assistant, err := s.store.CreatePair(ctx, userID, text, reply)
 	if err != nil {
 		return nil, err
 	}

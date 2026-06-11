@@ -67,7 +67,8 @@ func newEnv(t *testing.T, hasKey bool, comp *fakeCompleter) *env {
 
 	svc := ai.NewService(dash, q, comp, hasKey)
 	chatCtx := ai.NewChatContextBuilder(dash, fi, ci)
-	chatSvc := ai.NewChatService(chatCtx, q, comp, hasKey)
+	chatStore := ai.NewChatStore(q, pool)
+	chatSvc := ai.NewChatService(chatCtx, chatStore, comp, hasKey)
 
 	r := chi.NewRouter()
 	r.Group(func(r chi.Router) {

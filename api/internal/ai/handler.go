@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/focus365/api/internal/auth"
 	"github.com/focus365/api/internal/httpx"
@@ -12,6 +13,10 @@ import (
 )
 
 const dateLayout = "2006-01-02"
+
+// maxChatChars limita el largo del mensaje del chat en caracteres (runes), no en
+// bytes, para que el español con acentos no se rechace antes de tiempo.
+const maxChatChars = 2000
 
 // Routes monta los endpoints del asistente (bajo RequireAuth en server.go):
 // el insight proactivo y el chat on-demand.
@@ -79,9 +84,10 @@ func handleMessages(chat *ChatService) http.HandlerFunc {
 	}
 }
 
-// chatRequestBody es el body de POST /ai/chat.
+// chatRequestBody es el body de POST /ai/chat. El largo máximo se valida en el
+// handler por caracteres (ver maxChatChars), no con el tag `max` que cuenta bytes.
 type chatRequestBody struct {
-	Message string `json:"message" validate:"required,max=2000"`
+	Message string `json:"message" validate:"required"`
 }
 
 // chatReplyResponse envuelve la respuesta del asistente.
@@ -105,6 +111,10 @@ func handleChat(chat *ChatService) http.HandlerFunc {
 		req.Message = strings.TrimSpace(req.Message)
 		if req.Message == "" {
 			httpx.WriteErr(w, http.StatusBadRequest, "Falta el mensaje")
+			return
+		}
+		if utf8.RuneCountInString(req.Message) > maxChatChars {
+			httpx.WriteErr(w, http.StatusBadRequest, "El mensaje es demasiado largo")
 			return
 		}
 		reply, err := chat.Send(r.Context(), userID, req.Message, parseTodayParam(r))

@@ -4,6 +4,7 @@ import { useQuery } from "@tanstack/react-query";
 import { useAuth } from "@/lib/auth";
 import { getDashboard, todayString, type Snapshot } from "@/lib/dashboard";
 import { formatMXN } from "@/lib/finances";
+import { getInsight } from "@/lib/ai";
 
 export const Route = createFileRoute("/")({ component: DashboardPage });
 
@@ -72,11 +73,23 @@ function DashboardPage() {
 }
 
 function AIBand() {
-  return (
-    <div className="rounded-lg border border-dashed border-amber-brand bg-amber-brand/10 px-4 py-3 text-sm font-bold text-amber-brand">
-      ✦ Tu insight del día llega pronto
-    </div>
-  );
+  const { user } = useAuth();
+  const insightQ = useQuery({
+    queryKey: ["ai-insight", todayString()],
+    queryFn: getInsight,
+    enabled: !!user,
+  });
+
+  const base =
+    "rounded-lg border border-dashed border-amber-brand bg-amber-brand/10 px-4 py-3 text-sm font-bold text-amber-brand";
+
+  if (insightQ.isLoading) {
+    return <div className={base}>✦ Generando tu insight…</div>;
+  }
+  if (insightQ.data?.available && insightQ.data.content) {
+    return <div className={base}>✦ {insightQ.data.content}</div>;
+  }
+  return <div className={base}>✦ Tu insight del día llega pronto</div>;
 }
 
 function Card({

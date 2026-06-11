@@ -110,6 +110,16 @@ func fieldLabel(field string) string {
 		return "las repeticiones"
 	case "WeightGrams":
 		return "el peso"
+	case "Title":
+		return "el título"
+	case "Dimension":
+		return "la dimensión"
+	case "Deadline":
+		return "la fecha límite"
+	case "Progress":
+		return "el progreso"
+	case "Status":
+		return "el estado"
 	default:
 		return field
 	}

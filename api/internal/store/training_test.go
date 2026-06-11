@@ -7,7 +7,6 @@ import (
 
 	"github.com/focus365/api/internal/store"
 	"github.com/focus365/api/internal/testutil"
-	"github.com/jackc/pgx/v5/pgtype"
 )
 
 func ptrInt32(v int32) *int32 { return &v }
@@ -79,10 +78,10 @@ func TestTrainingStore(t *testing.T) {
 		t.Errorf("nombre = %q, want Sentadilla", sets[0].ExerciseName)
 	}
 
-	// ListWorkouts filtra por rango. From/To son pgtype.Date.
-	from := pgtype.Date{Time: time.Date(2026, 6, 1, 0, 0, 0, 0, time.UTC), Valid: true}
-	to := pgtype.Date{Time: time.Date(2026, 6, 30, 0, 0, 0, 0, time.UTC), Valid: true}
-	ws, err := q.ListWorkouts(ctx, store.ListWorkoutsParams{UserID: user.ID, From: from, To: to})
+	// ListWorkouts filtra por rango. From/To son *time.Time.
+	from := time.Date(2026, 6, 1, 0, 0, 0, 0, time.UTC)
+	to := time.Date(2026, 6, 30, 0, 0, 0, 0, time.UTC)
+	ws, err := q.ListWorkouts(ctx, store.ListWorkoutsParams{UserID: user.ID, From: &from, To: &to})
 	if err != nil {
 		t.Fatalf("ListWorkouts: %v", err)
 	}

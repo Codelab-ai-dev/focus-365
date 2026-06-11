@@ -10,7 +10,6 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	"github.com/jackc/pgx/v5/pgtype"
 )
 
 const createWorkout = `-- name: CreateWorkout :one
@@ -244,9 +243,9 @@ ORDER BY date DESC, created_at DESC
 `
 
 type ListWorkoutsParams struct {
-	UserID uuid.UUID   `json:"user_id"`
-	From   pgtype.Date `json:"from"`
-	To     pgtype.Date `json:"to"`
+	UserID uuid.UUID  `json:"user_id"`
+	From   *time.Time `json:"from"`
+	To     *time.Time `json:"to"`
 }
 
 func (q *Queries) ListWorkouts(ctx context.Context, arg ListWorkoutsParams) ([]Workout, error) {

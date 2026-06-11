@@ -9,7 +9,6 @@ import (
 	"github.com/focus365/api/internal/store"
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
@@ -113,7 +112,7 @@ func (s *Service) GetWorkout(ctx context.Context, userID, id uuid.UUID) (*Workou
 // evitando N+1 con una sola consulta de series para todas las sesiones.
 func (s *Service) ListWorkouts(ctx context.Context, userID uuid.UUID, from, to *time.Time) ([]Workout, error) {
 	rows, err := s.q.ListWorkouts(ctx, store.ListWorkoutsParams{
-		UserID: userID, From: toPgDate(from), To: toPgDate(to),
+		UserID: userID, From: from, To: to,
 	})
 	if err != nil {
 		return nil, err
@@ -165,11 +164,3 @@ func workoutView(w store.Workout, sets []WorkoutSet) *Workout {
 	}
 }
 
-// toPgDate convierte un *time.Time (filtro opcional) al pgtype.Date que espera
-// ListWorkoutsParams. nil → NULL (sin filtro).
-func toPgDate(t *time.Time) pgtype.Date {
-	if t == nil {
-		return pgtype.Date{Valid: false}
-	}
-	return pgtype.Date{Time: *t, Valid: true}
-}

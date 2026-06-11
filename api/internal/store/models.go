@@ -29,6 +29,17 @@ type Exercise struct {
 	CreatedAt time.Time `json:"created_at"`
 }
 
+type Goal struct {
+	ID        uuid.UUID  `json:"id"`
+	UserID    uuid.UUID  `json:"user_id"`
+	Title     string     `json:"title"`
+	Dimension string     `json:"dimension"`
+	Status    string     `json:"status"`
+	Progress  int32      `json:"progress"`
+	Deadline  *time.Time `json:"deadline"`
+	CreatedAt time.Time  `json:"created_at"`
+}
+
 type Habit struct {
 	ID         uuid.UUID  `json:"id"`
 	UserID     uuid.UUID  `json:"user_id"`

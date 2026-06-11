@@ -61,7 +61,10 @@ func countActive(s *Snapshot) int {
 	if s.Streak.Total > 0 {
 		n++
 	}
-	if s.Finance.Status != "" && s.Finance.Status != "pendiente" {
+	// El ciclo vigente siempre está "pendiente" (no cierra hasta el próximo
+	// día de pago), así que el estado no sirve como señal: contamos finanzas
+	// como activa cuando el ciclo tuvo movimiento (net distinto de cero).
+	if s.Finance.Net != 0 {
 		n++
 	}
 	if s.Training.TrainedToday {

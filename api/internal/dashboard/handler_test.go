@@ -158,11 +158,10 @@ func TestPopulatedDashboard(t *testing.T) {
 	if rec.Code != http.StatusOK {
 		t.Fatalf("code = %d, body = %s", rec.Code, rec.Body.String())
 	}
-	// Finanzas del ciclo actual quedan en estado "pendiente", que countActive
-	// NO cuenta como dimensión activa; por eso son 4 (hábitos, check-in,
-	// entrenamiento y metas), no 5.
-	if body["dimensions_active"].(float64) != 4 {
-		t.Errorf("dimensions_active = %v, want 4", body["dimensions_active"])
+	// Las 5 dimensiones tienen movimiento hoy: hábito marcado, ingreso en el
+	// ciclo (net != 0), check-in, entreno y meta activa.
+	if body["dimensions_active"].(float64) != 5 {
+		t.Errorf("dimensions_active = %v, want 5", body["dimensions_active"])
 	}
 	streak := body["streak"].(map[string]any)
 	if streak["total"].(float64) != 1 || streak["done_today"].(float64) != 1 {

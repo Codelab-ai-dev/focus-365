@@ -1,0 +1,111 @@
+package checkin
+
+import (
+	"net/http"
+	"strconv"
+	"time"
+
+	"github.com/focus365/api/internal/auth"
+	"github.com/focus365/api/internal/httpx"
+	"github.com/go-chi/chi/v5"
+)
+
+const (
+	defaultLimit = 30
+	maxLimit     = 100
+)
+
+type upsertReq struct {
+	Date       string `json:"date" validate:"required"`
+	Mood       int    `json:"mood" validate:"required,min=1,max=10"`
+	Energy     int    `json:"energy" validate:"required,min=1,max=10"`
+	Discipline int    `json:"discipline" validate:"required,min=1,max=10"`
+	Note       string `json:"note"`
+}
+
+func Routes(svc *Service) http.Handler {
+	r := chi.NewRouter()
+	r.Post("/", handleUpsert(svc))
+	r.Get("/today", handleToday(svc))
+	r.Get("/", handleList(svc))
+	return r
+}
+
+func handleUpsert(svc *Service) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		userID, ok := auth.UserIDFromContext(r.Context())
+		if !ok {
+			httpx.WriteErr(w, http.StatusUnauthorized, "no autorizado")
+			return
+		}
+		var req upsertReq
+		if !httpx.DecodeAndValidate(w, r, &req) {
+			return
+		}
+		date, err := time.Parse(dateLayout, req.Date)
+		if err != nil {
+			httpx.WriteErr(w, http.StatusBadRequest, "la fecha no tiene un formato válido (YYYY-MM-DD)")
+			return
+		}
+		ci, err := svc.Upsert(r.Context(), userID, Input{
+			Date: date, Mood: req.Mood, Energy: req.Energy, Discipline: req.Discipline, Note: req.Note,
+		})
+		if err != nil {
+			httpx.WriteErr(w, http.StatusInternalServerError, "error interno")
+			return
+		}
+		httpx.WriteJSON(w, http.StatusOK, ci)
+	}
+}
+
+func handleToday(svc *Service) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		userID, ok := auth.UserIDFromContext(r.Context())
+		if !ok {
+			httpx.WriteErr(w, http.StatusUnauthorized, "no autorizado")
+			return
+		}
+		dateStr := r.URL.Query().Get("date")
+		if dateStr == "" {
+			httpx.WriteErr(w, http.StatusBadRequest, "Falta la fecha")
+			return
+		}
+		date, err := time.Parse(dateLayout, dateStr)
+		if err != nil {
+			httpx.WriteErr(w, http.StatusBadRequest, "la fecha no tiene un formato válido (YYYY-MM-DD)")
+			return
+		}
+		ci, err := svc.Today(r.Context(), userID, date)
+		if err != nil {
+			httpx.WriteErr(w, http.StatusInternalServerError, "error interno")
+			return
+		}
+		// ci puede ser nil → se serializa como null (200).
+		httpx.WriteJSON(w, http.StatusOK, ci)
+	}
+}
+
+func handleList(svc *Service) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		userID, ok := auth.UserIDFromContext(r.Context())
+		if !ok {
+			httpx.WriteErr(w, http.StatusUnauthorized, "no autorizado")
+			return
+		}
+		limit := defaultLimit
+		if q := r.URL.Query().Get("limit"); q != "" {
+			if n, err := strconv.Atoi(q); err == nil && n > 0 {
+				limit = n
+			}
+		}
+		if limit > maxLimit {
+			limit = maxLimit
+		}
+		list, err := svc.List(r.Context(), userID, limit)
+		if err != nil {
+			httpx.WriteErr(w, http.StatusInternalServerError, "error interno")
+			return
+		}
+		httpx.WriteJSON(w, http.StatusOK, list)
+	}
+}

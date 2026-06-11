@@ -86,6 +86,16 @@ func fieldLabel(field string) string {
 		return "la energía"
 	case "Discipline":
 		return "la disciplina"
+	case "Type":
+		return "el tipo"
+	case "Amount":
+		return "el monto"
+	case "OccurredOn":
+		return "la fecha"
+	case "Category":
+		return "la categoría"
+	case "Remark":
+		return "la nota"
 	default:
 		return field
 	}

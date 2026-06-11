@@ -32,6 +32,36 @@ func TestValidationMessage(t *testing.T) {
 	}
 }
 
+type txTipo struct {
+	Type string `validate:"required,oneof=income expense transfer"`
+}
+
+type txMonto struct {
+	Amount int64 `validate:"required,min=1"`
+}
+
+func TestValidationMessageFinanzas(t *testing.T) {
+	cases := []struct {
+		name string
+		in   any
+		want string
+	}{
+		{"tipo inválido", txTipo{Type: "bogus"}, "El tipo no es válido"},
+		{"monto faltante", txMonto{Amount: 0}, "Falta el monto"},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			err := validate.Struct(c.in)
+			if err == nil {
+				t.Fatal("se esperaba un error de validación")
+			}
+			if got := ValidationMessage(err); got != c.want {
+				t.Errorf("ValidationMessage = %q, want %q", got, c.want)
+			}
+		})
+	}
+}
+
 // Estructuras con un único campo inválido para aislar cada rama de
 // ValidationMessage sin depender del orden de los errores.
 type numericMin struct {

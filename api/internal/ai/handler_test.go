@@ -33,6 +33,9 @@ type fakeCompleter struct {
 	chatOut    string
 	chatErr    error
 	chatCalled int
+
+	chatDeltas    []string
+	chatStreamErr error
 }
 
 func (f *fakeCompleter) Complete(ctx context.Context, system, user string) (string, error) {
@@ -43,6 +46,19 @@ func (f *fakeCompleter) Complete(ctx context.Context, system, user string) (stri
 func (f *fakeCompleter) Chat(ctx context.Context, system string, history []ai.ChatMsg) (string, error) {
 	f.chatCalled++
 	return f.chatOut, f.chatErr
+}
+
+func (f *fakeCompleter) ChatStream(ctx context.Context, system string, history []ai.ChatMsg, onDelta func(string)) (string, error) {
+	f.chatCalled++
+	var full string
+	for _, d := range f.chatDeltas {
+		full += d
+		onDelta(d)
+	}
+	if f.chatStreamErr != nil {
+		return "", f.chatStreamErr
+	}
+	return full, nil
 }
 
 type env struct {
@@ -68,7 +84,7 @@ func newEnv(t *testing.T, hasKey bool, comp *fakeCompleter) *env {
 	svc := ai.NewService(dash, q, comp, hasKey)
 	chatCtx := ai.NewChatContextBuilder(dash, fi, ci)
 	chatStore := ai.NewChatStore(q, pool)
-	chatSvc := ai.NewChatService(chatCtx, chatStore, comp, hasKey)
+	chatSvc := ai.NewChatService(chatCtx, chatStore, comp, comp, hasKey)
 
 	r := chi.NewRouter()
 	r.Group(func(r chi.Router) {

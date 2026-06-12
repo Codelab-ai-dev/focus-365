@@ -22,6 +22,11 @@ type chatCompleter interface {
 	Chat(ctx context.Context, system string, history []ChatMsg) (string, error)
 }
 
+// chatStreamer abstrae la llamada de chat en streaming (testeable con fake).
+type chatStreamer interface {
+	ChatStream(ctx context.Context, system string, history []ChatMsg, onDelta func(string)) (string, error)
+}
+
 // messageStore lee el historial y persiste el par usuario+asistente del chat.
 // La implementación de producción (pgChatStore) hace la escritura en una
 // transacción para no dejar mensajes huérfanos.
@@ -37,16 +42,18 @@ type contextBuilder interface {
 
 // ChatService orquesta la conversación: contexto + historial + Groq + persistencia.
 type ChatService struct {
-	ctxb   contextBuilder
-	store  messageStore
-	groq   chatCompleter
-	hasKey bool
+	ctxb     contextBuilder
+	store    messageStore
+	groq     chatCompleter
+	streamer chatStreamer
+	hasKey   bool
 }
 
-// NewChatService inyecta el constructor de contexto, el store de mensajes, el
-// cliente de chat (Groq o fake) y si hay clave configurada.
-func NewChatService(ctxb contextBuilder, q messageStore, c chatCompleter, hasKey bool) *ChatService {
-	return &ChatService{ctxb: ctxb, store: q, groq: c, hasKey: hasKey}
+// NewChatService inyecta el constructor de contexto, el store de mensajes, los
+// clientes de chat bloqueante y streaming (GroqClient implementa ambos) y si
+// hay clave configurada.
+func NewChatService(ctxb contextBuilder, q messageStore, c chatCompleter, s chatStreamer, hasKey bool) *ChatService {
+	return &ChatService{ctxb: ctxb, store: q, groq: c, streamer: s, hasKey: hasKey}
 }
 
 // History devuelve el historial completo del usuario, mapeado a la vista.
@@ -84,6 +91,38 @@ func (s *ChatService) Send(ctx context.Context, userID uuid.UUID, text string, t
 
 	// Solo ante éxito persistimos el par, y de forma atómica (evita mensajes de
 	// usuario huérfanos si fallara el segundo insert).
+	assistant, err := s.store.CreatePair(ctx, userID, text, reply)
+	if err != nil {
+		return nil, err
+	}
+	v := Message{Role: assistant.Role, Content: assistant.Content, CreatedAt: assistant.CreatedAt}
+	return &v, nil
+}
+
+// SendStream es la variante streaming de Send: re-emite cada delta vía onDelta
+// y, solo si el stream de Groq terminó sin error, persiste el par completo de
+// forma atómica. Corte a medias → ErrUnavailable y nada persistido.
+func (s *ChatService) SendStream(ctx context.Context, userID uuid.UUID, text string, today time.Time, onDelta func(string)) (*Message, error) {
+	if !s.hasKey {
+		return nil, ErrUnavailable
+	}
+
+	contextJSON, err := s.ctxb.build(ctx, userID, today)
+	if err != nil {
+		return nil, err
+	}
+
+	rows, err := s.store.ListMessages(ctx, userID)
+	if err != nil {
+		return nil, err
+	}
+	history := buildHistory(rows, text)
+
+	reply, err := s.streamer.ChatStream(ctx, buildChatSystemPrompt(contextJSON), history, onDelta)
+	if err != nil {
+		return nil, ErrUnavailable
+	}
+
 	assistant, err := s.store.CreatePair(ctx, userID, text, reply)
 	if err != nil {
 		return nil, err

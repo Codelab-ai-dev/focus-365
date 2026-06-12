@@ -59,7 +59,7 @@ func New(d Deps) http.Handler {
 			aiSvc := ai.NewService(dashboardSvc, q, groq, d.GroqAPIKey != "")
 			chatCtx := ai.NewChatContextBuilder(dashboardSvc, financeSvc, checkinSvc)
 			chatStore := ai.NewChatStore(q, d.Pool)
-			chatSvc := ai.NewChatService(chatCtx, chatStore, groq, d.GroqAPIKey != "")
+			chatSvc := ai.NewChatService(chatCtx, chatStore, groq, groq, d.GroqAPIKey != "")
 			r.Mount("/ai", ai.Routes(aiSvc, chatSvc))
 		})
 	})

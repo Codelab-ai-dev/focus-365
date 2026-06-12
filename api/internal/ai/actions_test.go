@@ -1,8 +1,17 @@
 package ai
 
 import (
+	"context"
+	"errors"
 	"strings"
 	"testing"
+	"time"
+
+	"github.com/focus365/api/internal/checkin"
+	"github.com/focus365/api/internal/finance"
+	"github.com/focus365/api/internal/goals"
+	"github.com/focus365/api/internal/habits"
+	"github.com/google/uuid"
 )
 
 func TestParseActionPayloadValid(t *testing.T) {
@@ -74,5 +83,111 @@ func TestBuildChatToolsCuatro(t *testing.T) {
 		if !names[want] {
 			t.Errorf("falta tool %s", want)
 		}
+	}
+}
+
+// --- Fakes para el ejecutor ---
+
+type fakeCheckinSvc struct{ in *checkin.Input }
+
+func (f *fakeCheckinSvc) Upsert(ctx context.Context, userID uuid.UUID, in checkin.Input) (*checkin.CheckIn, error) {
+	f.in = &in
+	return &checkin.CheckIn{}, nil
+}
+
+type fakeFinanceSvc struct{ in *finance.Input }
+
+func (f *fakeFinanceSvc) Create(ctx context.Context, userID uuid.UUID, in finance.Input) (*finance.Transaction, error) {
+	f.in = &in
+	return &finance.Transaction{}, nil
+}
+
+type fakeHabitsSvc struct {
+	habitID  uuid.UUID
+	done     bool
+	notFound bool
+}
+
+func (f *fakeHabitsSvc) SetCheck(ctx context.Context, userID, habitID uuid.UUID, day time.Time, done bool, today time.Time) (*habits.Habit, error) {
+	if f.notFound {
+		return nil, nil
+	}
+	f.habitID, f.done = habitID, done
+	return &habits.Habit{}, nil
+}
+
+type fakeGoalsSvc struct {
+	goalID   uuid.UUID
+	progress *int32
+	notFound bool
+}
+
+func (f *fakeGoalsSvc) Patch(ctx context.Context, userID, id uuid.UUID, p goals.GoalPatch, today time.Time) (*goals.Goal, error) {
+	if f.notFound {
+		return nil, nil
+	}
+	f.goalID, f.progress = id, p.Progress
+	return &goals.Goal{}, nil
+}
+
+func newTestExecutor(c *fakeCheckinSvc, fin *fakeFinanceSvc, h *fakeHabitsSvc, g *fakeGoalsSvc) *actionExecutor {
+	return &actionExecutor{checkin: c, finance: fin, habits: h, goals: g}
+}
+
+func TestExecutorCheckin(t *testing.T) {
+	c := &fakeCheckinSvc{}
+	ex := newTestExecutor(c, &fakeFinanceSvc{}, &fakeHabitsSvc{}, &fakeGoalsSvc{})
+	today := time.Date(2026, 6, 11, 0, 0, 0, 0, time.UTC)
+
+	err := ex.execute(context.Background(), uuid.New(), "checkin",
+		[]byte(`{"mood":8,"energy":6,"discipline":9,"note":"ok"}`), today)
+	if err != nil {
+		t.Fatalf("execute: %v", err)
+	}
+	if c.in == nil || c.in.Mood != 8 || c.in.Note != "ok" || !c.in.Date.Equal(today) {
+		t.Errorf("input = %+v", c.in)
+	}
+}
+
+func TestExecutorMovimiento(t *testing.T) {
+	fin := &fakeFinanceSvc{}
+	ex := newTestExecutor(&fakeCheckinSvc{}, fin, &fakeHabitsSvc{}, &fakeGoalsSvc{})
+	today := time.Date(2026, 6, 11, 0, 0, 0, 0, time.UTC)
+
+	if err := ex.execute(context.Background(), uuid.New(), "movimiento",
+		[]byte(`{"type":"expense","amount_centavos":2500000,"category":"comida"}`), today); err != nil {
+		t.Fatalf("execute: %v", err)
+	}
+	if fin.in == nil || fin.in.Type != "expense" || fin.in.Amount != 2500000 || !fin.in.OccurredOn.Equal(today) {
+		t.Errorf("input = %+v", fin.in)
+	}
+}
+
+func TestExecutorHabitoNotFound(t *testing.T) {
+	ex := newTestExecutor(&fakeCheckinSvc{}, &fakeFinanceSvc{}, &fakeHabitsSvc{notFound: true}, &fakeGoalsSvc{})
+	err := ex.execute(context.Background(), uuid.New(), "habito",
+		[]byte(`{"habit_id":"3b39c1f1-58a6-4012-9b69-0a3f4f6f3a11"}`), time.Now())
+	if !errors.Is(err, ErrActionInvalid) {
+		t.Errorf("err = %v, want ErrActionInvalid", err)
+	}
+}
+
+func TestExecutorMeta(t *testing.T) {
+	g := &fakeGoalsSvc{}
+	ex := newTestExecutor(&fakeCheckinSvc{}, &fakeFinanceSvc{}, &fakeHabitsSvc{}, g)
+	if err := ex.execute(context.Background(), uuid.New(), "meta",
+		[]byte(`{"goal_id":"3b39c1f1-58a6-4012-9b69-0a3f4f6f3a11","progress":60}`), time.Now()); err != nil {
+		t.Fatalf("execute: %v", err)
+	}
+	if g.progress == nil || *g.progress != 60 {
+		t.Errorf("progress = %v", g.progress)
+	}
+}
+
+func TestExecutorPayloadInvalido(t *testing.T) {
+	ex := newTestExecutor(&fakeCheckinSvc{}, &fakeFinanceSvc{}, &fakeHabitsSvc{}, &fakeGoalsSvc{})
+	err := ex.execute(context.Background(), uuid.New(), "checkin", []byte(`{"mood":99}`), time.Now())
+	if !errors.Is(err, ErrActionInvalid) {
+		t.Errorf("err = %v, want ErrActionInvalid", err)
 	}
 }

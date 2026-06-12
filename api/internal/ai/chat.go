@@ -9,6 +9,7 @@ import (
 
 	"github.com/focus365/api/internal/store"
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
 )
 
 // ErrUnavailable indica que la IA no está disponible (sin clave o fallo de Groq).
@@ -51,14 +52,15 @@ type ChatService struct {
 	store    messageStore
 	groq     chatCompleter
 	streamer chatStreamer
+	exec     *actionExecutor
 	hasKey   bool
 }
 
 // NewChatService inyecta el constructor de contexto, el store de mensajes, los
-// clientes de chat bloqueante y streaming (GroqClient implementa ambos) y si
-// hay clave configurada.
-func NewChatService(ctxb contextBuilder, q messageStore, c chatCompleter, s chatStreamer, hasKey bool) *ChatService {
-	return &ChatService{ctxb: ctxb, store: q, groq: c, streamer: s, hasKey: hasKey}
+// clientes de chat bloqueante y streaming (GroqClient implementa ambos), el
+// ejecutor de acciones y si hay clave configurada.
+func NewChatService(ctxb contextBuilder, q messageStore, c chatCompleter, s chatStreamer, exec *actionExecutor, hasKey bool) *ChatService {
+	return &ChatService{ctxb: ctxb, store: q, groq: c, streamer: s, exec: exec, hasKey: hasKey}
 }
 
 // History devuelve el historial completo del usuario, mapeado a la vista.
@@ -187,4 +189,60 @@ func toMessageView(r store.AiMessage) Message {
 		m.Action = &ActionView{Kind: *r.ActionKind, Payload: json.RawMessage(r.ActionPayload), Status: *r.ActionStatus}
 	}
 	return m
+}
+
+// ConfirmAction ejecuta la acción propuesta del mensaje y la marca done.
+// Solo transiciona si la ejecución fue exitosa.
+func (s *ChatService) ConfirmAction(ctx context.Context, userID, messageID uuid.UUID, today time.Time) (*Message, error) {
+	row, err := s.store.GetMessageForAction(ctx, messageID, userID)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, ErrActionNotFound
+		}
+		return nil, err
+	}
+	if row.ActionKind == nil || row.ActionStatus == nil {
+		return nil, ErrActionNotFound
+	}
+	if *row.ActionStatus != "proposed" {
+		return nil, ErrActionConflict
+	}
+	if err := s.exec.execute(ctx, userID, *row.ActionKind, row.ActionPayload, today); err != nil {
+		return nil, err
+	}
+	upd, err := s.store.SetActionStatus(ctx, messageID, userID, "done")
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, ErrActionConflict
+		}
+		return nil, err
+	}
+	v := toMessageView(upd)
+	return &v, nil
+}
+
+// CancelAction marca la propuesta como cancelada sin ejecutar nada.
+func (s *ChatService) CancelAction(ctx context.Context, userID, messageID uuid.UUID) (*Message, error) {
+	row, err := s.store.GetMessageForAction(ctx, messageID, userID)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, ErrActionNotFound
+		}
+		return nil, err
+	}
+	if row.ActionKind == nil || row.ActionStatus == nil {
+		return nil, ErrActionNotFound
+	}
+	if *row.ActionStatus != "proposed" {
+		return nil, ErrActionConflict
+	}
+	upd, err := s.store.SetActionStatus(ctx, messageID, userID, "cancelled")
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, ErrActionConflict
+		}
+		return nil, err
+	}
+	v := toMessageView(upd)
+	return &v, nil
 }

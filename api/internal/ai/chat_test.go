@@ -90,7 +90,7 @@ func (m *memStore) CreatePair(ctx context.Context, userID uuid.UUID, userText, a
 func TestChatSendPersistsPairAndReturnsAssistant(t *testing.T) {
 	groq := &fakeChatGroq{out: "Vas verde este ciclo."}
 	st := &memStore{}
-	svc := NewChatService(fakeCtx{out: `{"snapshot":{}}`}, st, groq, groq, true)
+	svc := NewChatService(fakeCtx{out: `{"snapshot":{}}`}, st, groq, groq, nil, true)
 	uid := uuid.New()
 
 	msg, err := svc.Send(context.Background(), uid, "¿cómo voy?", time.Now())
@@ -121,7 +121,7 @@ func TestChatSendMultiTurnPassesHistory(t *testing.T) {
 		{ID: uuid.New(), UserID: uid, Role: "user", Content: "hola", CreatedAt: time.Now()},
 		{ID: uuid.New(), UserID: uid, Role: "assistant", Content: "qué tal", CreatedAt: time.Now().Add(time.Millisecond)},
 	}}
-	svc := NewChatService(fakeCtx{out: "{}"}, st, groq, groq, true)
+	svc := NewChatService(fakeCtx{out: "{}"}, st, groq, groq, nil, true)
 
 	if _, err := svc.Send(context.Background(), uid, "¿cómo voy?", time.Now()); err != nil {
 		t.Fatalf("Send: %v", err)
@@ -138,7 +138,7 @@ func TestChatSendMultiTurnPassesHistory(t *testing.T) {
 func TestChatSendNoKeyDegrades(t *testing.T) {
 	groq := &fakeChatGroq{out: "no usar"}
 	st := &memStore{}
-	svc := NewChatService(fakeCtx{out: "{}"}, st, groq, groq, false)
+	svc := NewChatService(fakeCtx{out: "{}"}, st, groq, groq, nil, false)
 
 	_, err := svc.Send(context.Background(), uuid.New(), "hola", time.Now())
 	if !errors.Is(err, ErrUnavailable) {
@@ -155,7 +155,7 @@ func TestChatSendNoKeyDegrades(t *testing.T) {
 func TestChatSendGroqFailureDoesNotPersist(t *testing.T) {
 	groq := &fakeChatGroq{err: errors.New("groq caído")}
 	st := &memStore{}
-	svc := NewChatService(fakeCtx{out: "{}"}, st, groq, groq, true)
+	svc := NewChatService(fakeCtx{out: "{}"}, st, groq, groq, nil, true)
 
 	_, err := svc.Send(context.Background(), uuid.New(), "hola", time.Now())
 	if !errors.Is(err, ErrUnavailable) {
@@ -172,7 +172,7 @@ func TestChatHistoryMapsRows(t *testing.T) {
 		{ID: uuid.New(), UserID: uid, Role: "user", Content: "hola", CreatedAt: time.Now()},
 	}}
 	f := &fakeChatGroq{}
-	svc := NewChatService(fakeCtx{}, st, f, f, true)
+	svc := NewChatService(fakeCtx{}, st, f, f, nil, true)
 
 	msgs, err := svc.History(context.Background(), uid)
 	if err != nil {
@@ -186,7 +186,7 @@ func TestChatHistoryMapsRows(t *testing.T) {
 func TestChatSendStreamEmitsDeltasAndPersists(t *testing.T) {
 	groq := &fakeChatGroq{chatDeltas: []string{"Vas ", "bien."}}
 	st := &memStore{}
-	svc := NewChatService(fakeCtx{out: "{}"}, st, groq, groq, true)
+	svc := NewChatService(fakeCtx{out: "{}"}, st, groq, groq, nil, true)
 	uid := uuid.New()
 
 	var deltas []string
@@ -209,7 +209,7 @@ func TestChatSendStreamEmitsDeltasAndPersists(t *testing.T) {
 func TestChatSendStreamFailureDoesNotPersist(t *testing.T) {
 	groq := &fakeChatGroq{chatDeltas: []string{"Vas "}, err: errors.New("stream cortado")}
 	st := &memStore{}
-	svc := NewChatService(fakeCtx{out: "{}"}, st, groq, groq, true)
+	svc := NewChatService(fakeCtx{out: "{}"}, st, groq, groq, nil, true)
 
 	_, err := svc.SendStream(context.Background(), uuid.New(), "hola", time.Now(), func(string) {})
 	if !errors.Is(err, ErrUnavailable) {
@@ -223,7 +223,7 @@ func TestChatSendStreamFailureDoesNotPersist(t *testing.T) {
 func TestChatSendStreamNoKeyDegrades(t *testing.T) {
 	groq := &fakeChatGroq{chatDeltas: []string{"no usar"}}
 	st := &memStore{}
-	svc := NewChatService(fakeCtx{out: "{}"}, st, groq, groq, false)
+	svc := NewChatService(fakeCtx{out: "{}"}, st, groq, groq, nil, false)
 
 	_, err := svc.SendStream(context.Background(), uuid.New(), "hola", time.Now(), func(string) {})
 	if !errors.Is(err, ErrUnavailable) {
@@ -273,7 +273,7 @@ func (m *memStore) SetActionStatus(ctx context.Context, id, userID uuid.UUID, st
 func TestChatSendStreamToolCallPersistsProposal(t *testing.T) {
 	groq := &fakeChatGroq{toolCall: &ToolCall{Name: "registrar_checkin", Arguments: `{"mood":8,"energy":6,"discipline":9}`}}
 	st := &memStore{}
-	svc := NewChatService(fakeCtx{out: "{}"}, st, groq, groq, true)
+	svc := NewChatService(fakeCtx{out: "{}"}, st, groq, groq, nil, true)
 	uid := uuid.New()
 
 	msg, err := svc.SendStream(context.Background(), uid, "registra mi check-in", time.Now(), func(string) {})
@@ -300,7 +300,7 @@ func TestChatSendStreamToolCallPersistsProposal(t *testing.T) {
 func TestChatSendStreamUnknownToolDegrades(t *testing.T) {
 	groq := &fakeChatGroq{toolCall: &ToolCall{Name: "borrar_todo", Arguments: `{}`}}
 	st := &memStore{}
-	svc := NewChatService(fakeCtx{out: "{}"}, st, groq, groq, true)
+	svc := NewChatService(fakeCtx{out: "{}"}, st, groq, groq, nil, true)
 
 	_, err := svc.SendStream(context.Background(), uuid.New(), "x", time.Now(), func(string) {})
 	if !errors.Is(err, ErrUnavailable) {
@@ -314,7 +314,7 @@ func TestChatSendStreamUnknownToolDegrades(t *testing.T) {
 func TestChatHistoryIncludesAction(t *testing.T) {
 	groq := &fakeChatGroq{toolCall: &ToolCall{Name: "marcar_habito", Arguments: `{"habit_id":"3b39c1f1-58a6-4012-9b69-0a3f4f6f3a11"}`}}
 	st := &memStore{}
-	svc := NewChatService(fakeCtx{out: "{}"}, st, groq, groq, true)
+	svc := NewChatService(fakeCtx{out: "{}"}, st, groq, groq, nil, true)
 	uid := uuid.New()
 	if _, err := svc.SendStream(context.Background(), uid, "marca meditar", time.Now(), func(string) {}); err != nil {
 		t.Fatalf("SendStream: %v", err)
@@ -326,5 +326,80 @@ func TestChatHistoryIncludesAction(t *testing.T) {
 	last := msgs[len(msgs)-1]
 	if last.Action == nil || last.Action.Kind != "habito" || last.ID == "" {
 		t.Errorf("history sin acción: %+v", last)
+	}
+}
+
+func proposeCheckin(t *testing.T, svc *ChatService, uid uuid.UUID) *Message {
+	t.Helper()
+	msg, err := svc.SendStream(context.Background(), uid, "registra mi check-in", time.Now(), func(string) {})
+	if err != nil {
+		t.Fatalf("SendStream: %v", err)
+	}
+	return msg
+}
+
+func TestConfirmActionExecutesAndTransitions(t *testing.T) {
+	groq := &fakeChatGroq{toolCall: &ToolCall{Name: "registrar_checkin", Arguments: `{"mood":8,"energy":6,"discipline":9}`}}
+	st := &memStore{}
+	c := &fakeCheckinSvc{}
+	svc := NewChatService(fakeCtx{out: "{}"}, st, groq, groq, newTestExecutor(c, &fakeFinanceSvc{}, &fakeHabitsSvc{}, &fakeGoalsSvc{}), true)
+	uid := uuid.New()
+	msg := proposeCheckin(t, svc, uid)
+
+	got, err := svc.ConfirmAction(context.Background(), uid, uuid.MustParse(msg.ID), time.Now())
+	if err != nil {
+		t.Fatalf("ConfirmAction: %v", err)
+	}
+	if got.Action == nil || got.Action.Status != "done" {
+		t.Errorf("status = %+v", got.Action)
+	}
+	if c.in == nil || c.in.Mood != 8 {
+		t.Errorf("no ejecutó el check-in: %+v", c.in)
+	}
+
+	// Doble confirm → conflicto.
+	if _, err := svc.ConfirmAction(context.Background(), uid, uuid.MustParse(msg.ID), time.Now()); !errors.Is(err, ErrActionConflict) {
+		t.Errorf("doble confirm err = %v, want ErrActionConflict", err)
+	}
+}
+
+func TestCancelActionTransitionsWithoutExecuting(t *testing.T) {
+	groq := &fakeChatGroq{toolCall: &ToolCall{Name: "registrar_checkin", Arguments: `{"mood":8,"energy":6,"discipline":9}`}}
+	st := &memStore{}
+	c := &fakeCheckinSvc{}
+	svc := NewChatService(fakeCtx{out: "{}"}, st, groq, groq, newTestExecutor(c, &fakeFinanceSvc{}, &fakeHabitsSvc{}, &fakeGoalsSvc{}), true)
+	uid := uuid.New()
+	msg := proposeCheckin(t, svc, uid)
+
+	got, err := svc.CancelAction(context.Background(), uid, uuid.MustParse(msg.ID))
+	if err != nil {
+		t.Fatalf("CancelAction: %v", err)
+	}
+	if got.Action == nil || got.Action.Status != "cancelled" {
+		t.Errorf("status = %+v", got.Action)
+	}
+	if c.in != nil {
+		t.Error("cancelar no debe ejecutar nada")
+	}
+}
+
+func TestConfirmActionNotFound(t *testing.T) {
+	svc := NewChatService(fakeCtx{out: "{}"}, &memStore{}, &fakeChatGroq{}, &fakeChatGroq{}, newTestExecutor(&fakeCheckinSvc{}, &fakeFinanceSvc{}, &fakeHabitsSvc{}, &fakeGoalsSvc{}), true)
+	if _, err := svc.ConfirmAction(context.Background(), uuid.New(), uuid.New(), time.Now()); !errors.Is(err, ErrActionNotFound) {
+		t.Errorf("err = %v, want ErrActionNotFound", err)
+	}
+}
+
+func TestConfirmActionOnPlainMessageIsNotFound(t *testing.T) {
+	groq := &fakeChatGroq{chatDeltas: []string{"hola"}}
+	st := &memStore{}
+	svc := NewChatService(fakeCtx{out: "{}"}, st, groq, groq, newTestExecutor(&fakeCheckinSvc{}, &fakeFinanceSvc{}, &fakeHabitsSvc{}, &fakeGoalsSvc{}), true)
+	uid := uuid.New()
+	msg, err := svc.SendStream(context.Background(), uid, "hola", time.Now(), func(string) {})
+	if err != nil {
+		t.Fatalf("SendStream: %v", err)
+	}
+	if _, err := svc.ConfirmAction(context.Background(), uid, uuid.MustParse(msg.ID), time.Now()); !errors.Is(err, ErrActionNotFound) {
+		t.Errorf("err = %v, want ErrActionNotFound", err)
 	}
 }

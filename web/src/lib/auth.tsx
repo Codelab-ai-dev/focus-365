@@ -1,4 +1,4 @@
-import { createContext, useContext, useState, ReactNode, useCallback } from "react";
+import { createContext, useContext, useState, useEffect, ReactNode, useCallback } from "react";
 import { apiFetch, setAccessToken } from "./api";
 
 export type User = { id: string; email: string; name: string };
@@ -15,6 +15,29 @@ const AuthContext = createContext<AuthState | null>(null);
 
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
+  const [ready, setReady] = useState(false);
+
+  // Al montar, intenta restaurar la sesión con la cookie HttpOnly de refresh.
+  // Los children no se renderizan hasta resolver, para que los guards de ruta
+  // no redirijan a /login antes de saber si hay sesión.
+  useEffect(() => {
+    let cancelled = false;
+    apiFetch<AuthResp>("/api/v1/auth/refresh", { method: "POST" })
+      .then((resp) => {
+        if (cancelled) return;
+        setAccessToken(resp.access_token);
+        setUser(resp.user);
+      })
+      .catch(() => {
+        /* sin sesión previa */
+      })
+      .finally(() => {
+        if (!cancelled) setReady(true);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   const login = useCallback(async (email: string, password: string) => {
     const resp = await apiFetch<AuthResp>("/api/v1/auth/login", {
@@ -35,13 +58,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const logout = useCallback(() => {
+    void apiFetch("/api/v1/auth/logout", { method: "POST" }).catch(() => {
+      /* la sesión local se limpia igual */
+    });
     setAccessToken(null);
     setUser(null);
   }, []);
 
   return (
     <AuthContext.Provider value={{ user, login, register, logout }}>
-      {children}
+      {ready ? children : null}
     </AuthContext.Provider>
   );
 }

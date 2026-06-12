@@ -76,6 +76,29 @@ func TestRegisterValidation(t *testing.T) {
 	}
 }
 
+func TestLogoutClearsRefreshCookie(t *testing.T) {
+	h := newHandler(t)
+	rec := postJSON(t, h, "/logout", nil)
+	if rec.Code != http.StatusNoContent {
+		t.Fatalf("code = %d, want 204, body = %s", rec.Code, rec.Body.String())
+	}
+	var cleared *http.Cookie
+	for _, c := range rec.Result().Cookies() {
+		if c.Name == "refresh_token" {
+			cleared = c
+		}
+	}
+	if cleared == nil {
+		t.Fatal("falta Set-Cookie de refresh_token en el logout")
+	}
+	if cleared.Value != "" || cleared.MaxAge >= 0 {
+		t.Errorf("la cookie no expira: value=%q maxAge=%d", cleared.Value, cleared.MaxAge)
+	}
+	if cleared.Path != "/api/v1/auth" {
+		t.Errorf("path = %q, want /api/v1/auth (debe coincidir con la cookie original)", cleared.Path)
+	}
+}
+
 func TestRegisterValidationMessages(t *testing.T) {
 	h := newHandler(t)
 	cases := []struct {

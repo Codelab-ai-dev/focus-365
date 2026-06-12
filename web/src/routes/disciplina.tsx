@@ -1,6 +1,7 @@
 import { createFileRoute, useNavigate, Link } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { motion } from "framer-motion";
 import { useAuth } from "@/lib/auth";
 import {
   listHabits,
@@ -12,6 +13,12 @@ import {
   yesterdayString,
   type Habit,
 } from "@/lib/habits";
+import { Card } from "@/ui/Card";
+import { Button } from "@/ui/Button";
+import { Input } from "@/ui/Input";
+import { Chip } from "@/ui/Chip";
+import { PageTransition } from "@/ui/PageTransition";
+import { Reveal, RevealItem } from "@/ui/Reveal";
 
 export const Route = createFileRoute("/disciplina")({ component: DisciplinaPage });
 
@@ -74,150 +81,171 @@ function DisciplinaPage() {
   if (!user) return null;
 
   return (
-    <div className="mx-auto max-w-xl p-6">
-      <header className="flex items-center justify-between">
-        <h1 className="text-xl font-extrabold">Disciplina</h1>
-        <Link to="/" className="text-sm text-sand-400">Volver</Link>
-      </header>
+    <PageTransition>
+      <div className="mx-auto max-w-3xl p-6">
+        <header className="flex items-center justify-between">
+          <h1 className="font-display text-xl font-bold tracking-tight">Disciplina</h1>
+          <Link
+            to="/"
+            className="font-bold text-ink underline decoration-accent decoration-2 underline-offset-2"
+          >
+            Volver
+          </Link>
+        </header>
 
-      <form
-        onSubmit={(e) => {
-          e.preventDefault();
-          createMutation.mutate();
-        }}
-        className="mt-6 space-y-4 rounded-xl border border-ink-700 bg-ink-900 p-6"
-      >
-        <label className="block space-y-1">
-          <span className="text-sm text-sand-400">Hábito o reto</span>
-          <input
-            type="text"
-            aria-label="Nombre del hábito"
-            placeholder="Leer 20 min, 100 flexiones…"
-            value={name}
-            onChange={(e) => setName(e.target.value)}
-            className="w-full rounded-lg border border-ink-700 bg-ink-800 px-3 py-2 text-sm outline-none focus:border-amber-brand"
-          />
-        </label>
-        <label className="block space-y-1">
-          <span className="text-sm text-sand-400">Meta de días (opcional)</span>
-          <input
-            type="number"
-            aria-label="Meta de días"
-            placeholder="21"
-            min="1"
-            value={target}
-            onChange={(e) => setTarget(e.target.value)}
-            className="w-full rounded-lg border border-ink-700 bg-ink-800 px-3 py-2 text-sm outline-none focus:border-amber-brand"
-          />
-        </label>
-        {error && <p className="text-sm text-red-400">{error}</p>}
-        <button
-          type="submit"
-          disabled={createMutation.isPending}
-          className="w-full rounded-lg bg-amber-brand px-3 py-2 text-sm font-bold text-ink-950 disabled:opacity-60"
+        <form
+          onSubmit={(e) => {
+            e.preventDefault();
+            createMutation.mutate();
+          }}
+          className="mt-6"
         >
-          {createMutation.isPending ? "Creando…" : "Crear"}
-        </button>
-      </form>
+          <Card className="p-6 space-y-4">
+            <label className="block space-y-1">
+              <span className="text-[10px] font-bold uppercase tracking-[0.12em] text-muted">
+                Hábito o reto
+              </span>
+              <Input
+                type="text"
+                aria-label="Nombre del hábito"
+                placeholder="Leer 20 min, 100 flexiones…"
+                value={name}
+                onChange={(e) => setName(e.target.value)}
+              />
+            </label>
+            <label className="block space-y-1">
+              <span className="text-[10px] font-bold uppercase tracking-[0.12em] text-muted">
+                Meta de días (opcional)
+              </span>
+              <Input
+                type="number"
+                aria-label="Meta de días"
+                placeholder="21"
+                min="1"
+                value={target}
+                onChange={(e) => setTarget(e.target.value)}
+              />
+            </label>
+            {error && (
+              <p className="rounded-md border-2 border-ink bg-danger-bg px-3 py-2 text-sm font-bold text-danger-fg shadow-brutal-sm">
+                {error}
+              </p>
+            )}
+            <Button
+              type="submit"
+              disabled={createMutation.isPending}
+              className="w-full"
+            >
+              {createMutation.isPending ? "Creando…" : "Crear"}
+            </Button>
+          </Card>
+        </form>
 
-      <div className="mt-6 flex gap-3 text-sm">
-        <button
-          type="button"
-          onClick={() => setShowArchived(false)}
-          className={!showArchived ? "font-bold text-amber-brand" : "text-sand-400"}
-        >
-          Activos
-        </button>
-        <button
-          type="button"
-          onClick={() => setShowArchived(true)}
-          className={showArchived ? "font-bold text-amber-brand" : "text-sand-400"}
-        >
-          Archivados
-        </button>
-      </div>
+        <div className="mt-6 flex gap-3 text-sm">
+          <button
+            type="button"
+            onClick={() => setShowArchived(false)}
+            className={
+              !showArchived
+                ? "font-bold text-ink underline decoration-accent decoration-2 underline-offset-2"
+                : "text-muted"
+            }
+          >
+            Activos
+          </button>
+          <button
+            type="button"
+            onClick={() => setShowArchived(true)}
+            className={
+              showArchived
+                ? "font-bold text-ink underline decoration-accent decoration-2 underline-offset-2"
+                : "text-muted"
+            }
+          >
+            Archivados
+          </button>
+        </div>
 
-      <section className="mt-4">
-        {habitsQuery.data && habitsQuery.data.length > 0 ? (
-          <ul className="space-y-3">
-            {habitsQuery.data.map((h: Habit) => (
-              <li
-                key={h.id}
-                className="rounded-xl border border-ink-700 bg-ink-900 p-4 text-sm"
-              >
-                <div className="flex items-center justify-between">
-                  <span className="font-bold">{h.name}</span>
-                  <span className="text-streak">🔥 {h.current_streak} días</span>
-                </div>
-                <p className="mt-1 text-xs text-sand-400">
-                  Récord {h.best_streak}
-                  {h.target_days != null && ` · meta ${h.target_days}`}
-                </p>
-                {h.target_days != null && (
-                  <div className="mt-2 h-2 w-full overflow-hidden rounded-full bg-ink-800">
-                    <div
-                      className="h-full bg-streak"
-                      style={{
-                        width: `${Math.min(100, (h.current_streak / h.target_days) * 100)}%`,
-                      }}
-                    />
-                  </div>
-                )}
-                {!showArchived && (
-                  <div className="mt-3 flex flex-wrap gap-2">
-                    <button
-                      type="button"
-                      aria-label={`Marcar hoy ${h.name}`}
-                      onClick={() =>
-                        checkMutation.mutate({ id: h.id, day: todayString(), done: !h.done_today })
-                      }
-                      className={
-                        h.done_today
-                          ? "rounded-lg bg-streak px-3 py-1 text-xs font-bold text-ink-950"
-                          : "rounded-lg border border-ink-700 px-3 py-1 text-xs text-sand-400"
-                      }
-                    >
-                      {h.done_today ? "Hecho hoy ✓" : "Marcar hoy"}
-                    </button>
-                    {!h.done_yesterday && (
-                      <button
-                        type="button"
-                        aria-label={`Marcar ayer ${h.name}`}
-                        onClick={() =>
-                          checkMutation.mutate({ id: h.id, day: yesterdayString(), done: true })
-                        }
-                        className="rounded-lg border border-ink-700 px-3 py-1 text-xs text-sand-400"
-                      >
-                        Marcar ayer
-                      </button>
+        <section className="mt-4">
+          {habitsQuery.data && habitsQuery.data.length > 0 ? (
+            <Reveal className="space-y-3">
+              {habitsQuery.data.map((h: Habit) => (
+                <RevealItem key={h.id}>
+                  <Card className="p-4 text-sm">
+                    <div className="flex items-center justify-between">
+                      <span className="font-bold">{h.name}</span>
+                      <Chip variant="sun" size="sm">🔥 {h.current_streak} días</Chip>
+                    </div>
+                    <p className="mt-1 text-xs text-muted">
+                      Récord {h.best_streak}
+                      {h.target_days != null && ` · meta ${h.target_days}`}
+                    </p>
+                    {h.target_days != null && (
+                      <div className="mt-2 h-2 w-full overflow-hidden rounded-full bg-surface border-2 border-ink">
+                        <div
+                          className="h-full bg-accent"
+                          style={{
+                            width: `${Math.min(100, (h.current_streak / h.target_days) * 100)}%`,
+                          }}
+                        />
+                      </div>
                     )}
-                    <button
-                      type="button"
-                      aria-label={`Archivar ${h.name}`}
-                      onClick={() => archiveMutation.mutate(h.id)}
-                      className="rounded-lg border border-ink-700 px-3 py-1 text-xs text-sand-400"
-                    >
-                      Archivar
-                    </button>
-                    <button
-                      type="button"
-                      aria-label={`Borrar ${h.name}`}
-                      onClick={() => deleteMutation.mutate(h.id)}
-                      className="rounded-lg border border-ink-700 px-3 py-1 text-xs text-sand-400 hover:text-red-400"
-                    >
-                      Borrar
-                    </button>
-                  </div>
-                )}
-              </li>
-            ))}
-          </ul>
-        ) : (
-          <p className="text-sm text-sand-400">
-            {showArchived ? "No hay hábitos archivados." : "Aún no hay hábitos."}
-          </p>
-        )}
-      </section>
-    </div>
+                    {!showArchived && (
+                      <div className="mt-3 flex flex-wrap items-center gap-2">
+                        <motion.button
+                          whileTap={{ scale: 0.85 }}
+                          type="button"
+                          aria-label={`Marcar hoy ${h.name}`}
+                          onClick={() =>
+                            checkMutation.mutate({ id: h.id, day: todayString(), done: !h.done_today })
+                          }
+                          className={`grid h-9 w-9 place-items-center rounded-md border-[2.5px] border-ink text-lg font-bold shadow-brutal-sm transition-colors ${
+                            h.done_today ? "bg-accent text-[#16130e]" : "bg-surface text-muted"
+                          }`}
+                        >
+                          {h.done_today ? "✓" : ""}
+                        </motion.button>
+                        {!h.done_yesterday && (
+                          <Button
+                            variant="ghost"
+                            type="button"
+                            aria-label={`Marcar ayer ${h.name}`}
+                            onClick={() =>
+                              checkMutation.mutate({ id: h.id, day: yesterdayString(), done: true })
+                            }
+                          >
+                            Marcar ayer
+                          </Button>
+                        )}
+                        <Button
+                          variant="ghost"
+                          type="button"
+                          aria-label={`Archivar ${h.name}`}
+                          onClick={() => archiveMutation.mutate(h.id)}
+                        >
+                          Archivar
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          type="button"
+                          aria-label={`Borrar ${h.name}`}
+                          onClick={() => deleteMutation.mutate(h.id)}
+                        >
+                          Borrar
+                        </Button>
+                      </div>
+                    )}
+                  </Card>
+                </RevealItem>
+              ))}
+            </Reveal>
+          ) : (
+            <p className="text-sm text-muted">
+              {showArchived ? "No hay hábitos archivados." : "Aún no hay hábitos."}
+            </p>
+          )}
+        </section>
+      </div>
+    </PageTransition>
   );
 }

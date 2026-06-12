@@ -7,6 +7,7 @@ import {
   createRoute,
   createMemoryHistory,
 } from "@tanstack/react-router";
+import { ThemeProvider } from "@/ui/theme";
 
 const mockAuth = { user: null as null | { id: string; email: string; name: string } };
 vi.mock("@/lib/auth", () => ({
@@ -33,7 +34,11 @@ function renderBar() {
     history: createMemoryHistory({ initialEntries: ["/"] }),
   });
   // @ts-ignore router de prueba
-  render(<RouterProvider router={router} />);
+  render(
+    <ThemeProvider>
+      <RouterProvider router={router} />
+    </ThemeProvider>
+  );
 }
 
 describe("TopBar", () => {
@@ -52,5 +57,13 @@ describe("TopBar", () => {
     expect(await screen.findByText("Focus 365")).toBeInTheDocument();
     expect(screen.getByText("Finanzas")).toBeInTheDocument();
     expect(screen.getByText("Salir")).toBeInTheDocument();
+  });
+
+  it("incluye el toggle de tema", async () => {
+    mockAuth.user = { id: "u1", email: "a@b.com", name: "Ana" };
+    renderBar();
+    expect(
+      await screen.findByRole("button", { name: /Cambiar a tema/ })
+    ).toBeInTheDocument();
   });
 });

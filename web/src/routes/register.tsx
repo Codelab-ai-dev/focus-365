@@ -1,6 +1,10 @@
 import { createFileRoute, useNavigate, Link } from "@tanstack/react-router";
 import { useState, FormEvent } from "react";
 import { useAuth } from "@/lib/auth";
+import { Card } from "@/ui/Card";
+import { Button } from "@/ui/Button";
+import { Input } from "@/ui/Input";
+import { PageTransition } from "@/ui/PageTransition";
 
 export const Route = createFileRoute("/register")({ component: RegisterPage });
 
@@ -24,26 +28,43 @@ function RegisterPage() {
   }
 
   return (
-    <div className="flex min-h-screen items-center justify-center p-6">
-      <form onSubmit={onSubmit} className="w-full max-w-sm space-y-4 rounded-xl border border-ink-700 bg-ink-900 p-6">
-        <h1 className="text-2xl font-extrabold">Crea tu cuenta</h1>
-        <input aria-label="Nombre" placeholder="Nombre" value={name}
-          onChange={(e) => setName(e.target.value)}
-          className="w-full rounded-lg border border-ink-700 bg-ink-800 px-3 py-2 text-sm outline-none focus:border-amber-brand" />
-        <input aria-label="Email" type="email" placeholder="Email" value={email}
-          onChange={(e) => setEmail(e.target.value)}
-          className="w-full rounded-lg border border-ink-700 bg-ink-800 px-3 py-2 text-sm outline-none focus:border-amber-brand" />
-        <input aria-label="Contraseña" type="password" placeholder="Contraseña (mín. 6)" value={password}
-          onChange={(e) => setPassword(e.target.value)}
-          className="w-full rounded-lg border border-ink-700 bg-ink-800 px-3 py-2 text-sm outline-none focus:border-amber-brand" />
-        {error && <p className="text-sm text-streak">{error}</p>}
-        <button type="submit" className="w-full rounded-lg bg-amber-brand px-3 py-2 text-sm font-bold text-ink-950">
-          Crear cuenta
-        </button>
-        <p className="text-center text-xs text-sand-400">
-          ¿Ya tienes cuenta? <Link to="/login" className="text-amber-brand">Inicia sesión</Link>
-        </p>
-      </form>
-    </div>
+    <PageTransition>
+      <div className="flex min-h-screen items-center justify-center p-6">
+        <Card className="w-full max-w-sm p-6">
+          <form onSubmit={onSubmit} className="space-y-4">
+            <span className="inline-block -rotate-1 rounded-sm bg-ink px-2 py-0.5 font-display text-xl font-bold uppercase tracking-tight text-bg shadow-brutal-sm">
+              Focus 365
+            </span>
+            <p className="text-sm text-muted">Crea tu cuenta.</p>
+            <Input
+              aria-label="Nombre" placeholder="Nombre" value={name}
+              onChange={(e) => setName(e.target.value)}
+            />
+            <Input
+              aria-label="Email" type="email" placeholder="Email" value={email}
+              onChange={(e) => setEmail(e.target.value)}
+            />
+            <Input
+              aria-label="Contraseña" type="password" placeholder="Contraseña (mín. 6)" value={password}
+              onChange={(e) => setPassword(e.target.value)}
+            />
+            {error && (
+              <p className="rounded-md border-2 border-ink bg-danger-bg px-3 py-2 text-sm font-bold text-danger-fg shadow-brutal-sm">
+                {error}
+              </p>
+            )}
+            <Button type="submit" className="w-full">
+              Crear cuenta
+            </Button>
+            <p className="text-center text-xs text-muted">
+              ¿Ya tienes cuenta?{" "}
+              <Link to="/login" className="font-bold text-ink underline decoration-accent decoration-2 underline-offset-2">
+                Inicia sesión
+              </Link>
+            </p>
+          </form>
+        </Card>
+      </div>
+    </PageTransition>
   );
 }

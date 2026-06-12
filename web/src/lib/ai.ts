@@ -83,16 +83,22 @@ export async function sendMessageStream(
     }
   };
 
-  for (;;) {
-    const { done, value } = await reader.read();
-    if (done) break;
-    buffer += decoder.decode(value, { stream: true });
-    let sep: number;
-    while ((sep = buffer.indexOf("\n\n")) !== -1) {
-      const raw = buffer.slice(0, sep);
-      buffer = buffer.slice(sep + 2);
-      handleEvent(raw);
+  try {
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+      let sep: number;
+      while ((sep = buffer.indexOf("\n\n")) !== -1) {
+        const raw = buffer.slice(0, sep);
+        buffer = buffer.slice(sep + 2);
+        handleEvent(raw);
+      }
     }
+  } finally {
+    // Ante un throw temprano (evento error), cierra la conexión en vez de
+    // dejar que el stream siga hasta que el GC lo recoja.
+    await reader.cancel().catch(() => {});
   }
 
   if (!reply) throw new ApiError("la respuesta se cortó, intenta de nuevo", 502);

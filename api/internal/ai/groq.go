@@ -218,6 +218,8 @@ func (c *GroqClient) ChatStream(ctx context.Context, system string, history []Ch
 	if !sawDone {
 		return "", fmt.Errorf("groq stream cortado antes de [DONE]")
 	}
+	// Una respuesta vacía con [DONE] se trata como fallo a propósito: persistir
+	// un mensaje de asistente vacío no le sirve de nada al usuario.
 	if full.Len() == 0 {
 		return "", fmt.Errorf("groq stream sin contenido")
 	}

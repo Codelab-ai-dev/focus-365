@@ -2,7 +2,7 @@ import { createFileRoute, useNavigate, Link } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useAuth } from "@/lib/auth";
-import { getMessages, sendMessage, type Message } from "@/lib/ai";
+import { getMessages, sendMessageStream, type Message } from "@/lib/ai";
 
 export const Route = createFileRoute("/asistente")({ component: AsistentePage });
 
@@ -23,17 +23,32 @@ function AsistentePage() {
 
   const [text, setText] = useState("");
   const [error, setError] = useState<string | null>(null);
+  const [streaming, setStreaming] = useState<{ question: string; partial: string } | null>(null);
 
   const mutation = useMutation({
-    mutationFn: (message: string) => sendMessage(message),
-    onSuccess: () => {
+    mutationFn: (message: string) => {
+      setStreaming({ question: message, partial: "" });
+      return sendMessageStream(message, (delta) =>
+        setStreaming((s) => (s ? { ...s, partial: s.partial + delta } : s))
+      );
+    },
+    onSuccess: (reply, message) => {
       setError(null);
       setText("");
-      qc.invalidateQueries({ queryKey: ["ai-messages"] });
+      // Actualizar el caché optimistamente con la pregunta y la respuesta
+      // persistida antes de quitar las burbujas — evita el parpadeo.
+      qc.setQueryData<Message[]>(["ai-messages"], (prev) => [
+        ...(prev ?? []),
+        { role: "user", content: message, created_at: reply.created_at },
+        reply,
+      ]);
+      setStreaming(null);
     },
-    onError: (err) =>
-      // No limpiamos el input: el usuario puede reintentar sin reescribir.
-      setError(err instanceof Error ? err.message : "No se pudo enviar"),
+    onError: (err) => {
+      // Nada se persistió: se descarta el parcial y el input conserva el texto.
+      setStreaming(null);
+      setError(err instanceof Error ? err.message : "No se pudo enviar");
+    },
   });
 
   if (!user) return null;
@@ -48,7 +63,7 @@ function AsistentePage() {
       </header>
 
       <section className="flex flex-col gap-2">
-        {messages.length === 0 ? (
+        {messages.length === 0 && !streaming ? (
           <p className="text-sm text-sand-400">
             Pregúntame sobre tu día, tus finanzas o tus hábitos.
           </p>
@@ -66,10 +81,21 @@ function AsistentePage() {
             </div>
           ))
         )}
-        {mutation.isPending && (
-          <div className="self-start rounded-lg border border-ink-700 bg-ink-900 px-3 py-2 text-sm text-sand-400">
-            Pensando…
-          </div>
+        {streaming && (
+          <>
+            <div className="self-end rounded-lg bg-amber-brand/20 px-3 py-2 text-sm text-sand-100">
+              {streaming.question}
+            </div>
+            {streaming.partial === "" ? (
+              <div className="self-start rounded-lg border border-ink-700 bg-ink-900 px-3 py-2 text-sm text-sand-400">
+                Pensando…
+              </div>
+            ) : (
+              <div className="self-start rounded-lg border border-ink-700 bg-ink-900 px-3 py-2 text-sm text-sand-100">
+                {streaming.partial}
+              </div>
+            )}
+          </>
         )}
       </section>
 

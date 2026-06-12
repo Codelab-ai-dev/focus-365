@@ -1,7 +1,10 @@
 package ai
 
 import (
+	"encoding/json"
 	"errors"
+	"fmt"
+	"io"
 	"net/http"
 	"strings"
 	"time"
@@ -10,6 +13,7 @@ import (
 	"github.com/focus365/api/internal/auth"
 	"github.com/focus365/api/internal/httpx"
 	"github.com/go-chi/chi/v5"
+	"github.com/google/uuid"
 )
 
 const dateLayout = "2006-01-02"
@@ -25,6 +29,7 @@ func Routes(svc *Service, chat *ChatService) http.Handler {
 	r.Get("/insight", handleInsight(svc))
 	r.Get("/messages", handleMessages(chat))
 	r.Post("/chat", handleChat(chat))
+	r.Post("/chat/stream", handleChatStream(chat))
 	return r
 }
 
@@ -95,29 +100,40 @@ type chatReplyResponse struct {
 	Reply Message `json:"reply"`
 }
 
+// decodeChatMessage hace la validación compartida de los endpoints de chat:
+// auth, decode, no-vacío tras trim y máximo de runes. Si algo falla escribe la
+// respuesta de error y devuelve ok=false.
+func decodeChatMessage(w http.ResponseWriter, r *http.Request) (uuid.UUID, string, bool) {
+	userID, ok := auth.UserIDFromContext(r.Context())
+	if !ok {
+		httpx.WriteErr(w, http.StatusUnauthorized, "no autorizado")
+		return uuid.Nil, "", false
+	}
+	var req chatRequestBody
+	if !httpx.DecodeAndValidate(w, r, &req) {
+		return uuid.Nil, "", false
+	}
+	// Rechazamos mensajes vacíos tras trim (el validator `required` deja pasar
+	// cadenas de solo espacios).
+	req.Message = strings.TrimSpace(req.Message)
+	if req.Message == "" {
+		httpx.WriteErr(w, http.StatusBadRequest, "Falta el mensaje")
+		return uuid.Nil, "", false
+	}
+	if utf8.RuneCountInString(req.Message) > maxChatChars {
+		httpx.WriteErr(w, http.StatusBadRequest, "El mensaje es demasiado largo")
+		return uuid.Nil, "", false
+	}
+	return userID, req.Message, true
+}
+
 func handleChat(chat *ChatService) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		userID, ok := auth.UserIDFromContext(r.Context())
+		userID, msg, ok := decodeChatMessage(w, r)
 		if !ok {
-			httpx.WriteErr(w, http.StatusUnauthorized, "no autorizado")
 			return
 		}
-		var req chatRequestBody
-		if !httpx.DecodeAndValidate(w, r, &req) {
-			return
-		}
-		// Rechazamos mensajes vacíos tras trim (el validator `required` deja pasar
-		// cadenas de solo espacios).
-		req.Message = strings.TrimSpace(req.Message)
-		if req.Message == "" {
-			httpx.WriteErr(w, http.StatusBadRequest, "Falta el mensaje")
-			return
-		}
-		if utf8.RuneCountInString(req.Message) > maxChatChars {
-			httpx.WriteErr(w, http.StatusBadRequest, "El mensaje es demasiado largo")
-			return
-		}
-		reply, err := chat.Send(r.Context(), userID, req.Message, parseTodayParam(r))
+		reply, err := chat.Send(r.Context(), userID, msg, parseTodayParam(r))
 		if err != nil {
 			if errors.Is(err, ErrUnavailable) {
 				httpx.WriteErr(w, http.StatusServiceUnavailable, "asistente no disponible por ahora")
@@ -127,6 +143,86 @@ func handleChat(chat *ChatService) http.HandlerFunc {
 			return
 		}
 		httpx.WriteJSON(w, http.StatusOK, chatReplyResponse{Reply: *reply})
+	}
+}
+
+type deltaEvent struct {
+	Text string `json:"text"`
+}
+
+type errorEvent struct {
+	Error string `json:"error"`
+}
+
+type doneEvent struct {
+	Reply Message `json:"reply"`
+}
+
+// writeSSEEvent serializa data y lo escribe como evento SSE, con flush
+// inmediato para que el navegador lo reciba sin esperar al cierre.
+func writeSSEEvent(w io.Writer, flusher http.Flusher, event string, data any) {
+	payload, err := json.Marshal(data)
+	if err != nil {
+		return
+	}
+	fmt.Fprintf(w, "event: %s\ndata: %s\n\n", event, payload)
+	flusher.Flush()
+}
+
+// handleChatStream responde el chat por SSE. Los errores previos al primer
+// delta son respuestas HTTP normales (400/401/503); una vez iniciado el
+// stream, los fallos se emiten como `event: error` (y nada se persistió).
+func handleChatStream(chat *ChatService) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		userID, msg, ok := decodeChatMessage(w, r)
+		if !ok {
+			return
+		}
+		flusher, okF := w.(http.Flusher)
+		if !okF {
+			httpx.WriteErr(w, http.StatusInternalServerError, "streaming no soportado")
+			return
+		}
+
+		// Los headers SSE se escriben recién con el primer delta, para poder
+		// responder 503/500 HTTP normal si Groq falla antes de emitir nada.
+		started := false
+		startSSE := func() {
+			w.Header().Set("Content-Type", "text/event-stream")
+			w.Header().Set("Cache-Control", "no-cache")
+			// nginx respeta este header por respuesta: sin él, bufferea el proxy
+			// y los deltas llegarían todos juntos.
+			w.Header().Set("X-Accel-Buffering", "no")
+			w.WriteHeader(http.StatusOK)
+			started = true
+		}
+
+		reply, err := chat.SendStream(r.Context(), userID, msg, parseTodayParam(r), func(delta string) {
+			if !started {
+				startSSE()
+			}
+			writeSSEEvent(w, flusher, "delta", deltaEvent{Text: delta})
+		})
+		if err != nil {
+			if !started {
+				if errors.Is(err, ErrUnavailable) {
+					httpx.WriteErr(w, http.StatusServiceUnavailable, "asistente no disponible por ahora")
+					return
+				}
+				httpx.WriteErr(w, http.StatusInternalServerError, "error interno")
+				return
+			}
+			msgTxt := "error interno"
+			if errors.Is(err, ErrUnavailable) {
+				msgTxt = "asistente no disponible por ahora"
+			}
+			writeSSEEvent(w, flusher, "error", errorEvent{Error: msgTxt})
+			return
+		}
+		if !started {
+			startSSE()
+		}
+		writeSSEEvent(w, flusher, "done", doneEvent{Reply: *reply})
 	}
 }
 

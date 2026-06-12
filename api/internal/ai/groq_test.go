@@ -111,3 +111,75 @@ func TestGroqChatHTTPError(t *testing.T) {
 		t.Fatal("esperaba error en HTTP 500")
 	}
 }
+
+// sseChunk escribe un evento data: de Groq y hace flush.
+func sseChunk(w http.ResponseWriter, payload string) {
+	_, _ = w.Write([]byte("data: " + payload + "\n\n"))
+	if f, ok := w.(http.Flusher); ok {
+		f.Flush()
+	}
+}
+
+func TestGroqChatStreamOK(t *testing.T) {
+	var gotBody []byte
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotBody, _ = io.ReadAll(r.Body)
+		w.Header().Set("Content-Type", "text/event-stream")
+		sseChunk(w, `{"choices":[{"delta":{"content":"Vas "}}]}`)
+		sseChunk(w, `{"choices":[{"delta":{"content":"bien."}}]}`)
+		sseChunk(w, `[DONE]`)
+	}))
+	defer srv.Close()
+
+	c := newGroqClient(srv.URL, "test-key", "llama-3.3-70b-versatile")
+	var deltas []string
+	got, err := c.ChatStream(context.Background(), "sys", []ChatMsg{
+		{Role: "user", Content: "¿cómo voy?"},
+	}, func(d string) { deltas = append(deltas, d) })
+	if err != nil {
+		t.Fatalf("ChatStream: %v", err)
+	}
+	if got != "Vas bien." {
+		t.Errorf("content = %q, want %q", got, "Vas bien.")
+	}
+	if len(deltas) != 2 || deltas[0] != "Vas " || deltas[1] != "bien." {
+		t.Errorf("deltas = %v", deltas)
+	}
+	body := string(gotBody)
+	for _, want := range []string{`"stream":true`, `"role":"system"`, `"content":"sys"`, `"content":"¿cómo voy?"`} {
+		if !strings.Contains(body, want) {
+			t.Errorf("body no contiene %q: %s", want, body)
+		}
+	}
+}
+
+func TestGroqChatStreamCutMidwayFails(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		sseChunk(w, `{"choices":[{"delta":{"content":"Vas "}}]}`)
+		// Cierra sin [DONE]: simula corte a medias.
+	}))
+	defer srv.Close()
+
+	c := newGroqClient(srv.URL, "k", "m")
+	var deltas []string
+	_, err := c.ChatStream(context.Background(), "s", []ChatMsg{{Role: "user", Content: "x"}},
+		func(d string) { deltas = append(deltas, d) })
+	if err == nil {
+		t.Fatal("esperaba error al cortarse el stream sin [DONE]")
+	}
+}
+
+func TestGroqChatStreamHTTPError(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusInternalServerError)
+		_, _ = w.Write([]byte(`boom`))
+	}))
+	defer srv.Close()
+
+	c := newGroqClient(srv.URL, "k", "m")
+	if _, err := c.ChatStream(context.Background(), "s", []ChatMsg{{Role: "user", Content: "x"}},
+		func(string) {}); err == nil {
+		t.Fatal("esperaba error en HTTP 500")
+	}
+}

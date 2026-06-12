@@ -2,6 +2,7 @@ package ai_test
 
 import (
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -129,5 +130,110 @@ func TestChatEmptyHistory(t *testing.T) {
 	msgs, ok := body["messages"].([]any)
 	if !ok || len(msgs) != 0 {
 		t.Errorf("historial fresco = %v, want []", body["messages"])
+	}
+}
+
+func postChatStream(t *testing.T, h http.Handler, tok, body string) *httptest.ResponseRecorder {
+	t.Helper()
+	req := httptest.NewRequest(http.MethodPost, "/ai/chat/stream?today="+today, strings.NewReader(body))
+	if tok != "" {
+		req.Header.Set("Authorization", "Bearer "+tok)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+	return rec
+}
+
+func TestChatStreamHappyPath(t *testing.T) {
+	comp := &fakeCompleter{chatDeltas: []string{"Vas ", "verde."}}
+	e := newEnv(t, true, comp)
+	_, tok := e.user(t, "stream@b.com")
+
+	rec := postChatStream(t, e.h, tok, `{"message":"¿cómo voy?"}`)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("code = %d, body = %s", rec.Code, rec.Body.String())
+	}
+	if ct := rec.Header().Get("Content-Type"); ct != "text/event-stream" {
+		t.Errorf("Content-Type = %q", ct)
+	}
+	if ab := rec.Header().Get("X-Accel-Buffering"); ab != "no" {
+		t.Errorf("X-Accel-Buffering = %q, want no (nginx)", ab)
+	}
+	body := rec.Body.String()
+	for _, want := range []string{
+		"event: delta", `{"text":"Vas "}`, `{"text":"verde."}`,
+		"event: done", `"content":"Vas verde."`, `"role":"assistant"`,
+	} {
+		if !strings.Contains(body, want) {
+			t.Errorf("body SSE no contiene %q:\n%s", want, body)
+		}
+	}
+
+	rec2, body2 := getMessages(t, e.h, tok)
+	if rec2.Code != http.StatusOK {
+		t.Fatalf("messages code = %d", rec2.Code)
+	}
+	msgs, _ := body2["messages"].([]any)
+	if len(msgs) != 2 {
+		t.Fatalf("messages len = %d, want 2 (par persistido)", len(msgs))
+	}
+}
+
+func TestChatStreamGroqFailureMidwayEmitsErrorEvent(t *testing.T) {
+	comp := &fakeCompleter{chatDeltas: []string{"Vas "}, chatStreamErr: errors.New("stream cortado")}
+	e := newEnv(t, true, comp)
+	_, tok := e.user(t, "streamcut@b.com")
+
+	rec := postChatStream(t, e.h, tok, `{"message":"hola"}`)
+	// Los headers ya salieron con el primer delta: el código es 200.
+	if rec.Code != http.StatusOK {
+		t.Fatalf("code = %d", rec.Code)
+	}
+	body := rec.Body.String()
+	if !strings.Contains(body, "event: delta") || !strings.Contains(body, "event: error") {
+		t.Errorf("esperaba delta y error en el body:\n%s", body)
+	}
+	if strings.Contains(body, "event: done") {
+		t.Errorf("no debe haber done tras un corte:\n%s", body)
+	}
+
+	_, body2 := getMessages(t, e.h, tok)
+	msgs, _ := body2["messages"].([]any)
+	if len(msgs) != 0 {
+		t.Errorf("corte a medias no debe persistir, got %d mensajes", len(msgs))
+	}
+}
+
+func TestChatStreamFailureBeforeFirstDeltaIs503(t *testing.T) {
+	comp := &fakeCompleter{chatStreamErr: errors.New("groq caído")} // cero deltas
+	e := newEnv(t, true, comp)
+	_, tok := e.user(t, "streamdown@b.com")
+
+	rec := postChatStream(t, e.h, tok, `{"message":"hola"}`)
+	if rec.Code != http.StatusServiceUnavailable {
+		t.Errorf("code = %d, want 503 (HTTP normal, sin SSE)", rec.Code)
+	}
+}
+
+func TestChatStreamNoKey503(t *testing.T) {
+	e := newEnv(t, false, &fakeCompleter{chatDeltas: []string{"no usar"}})
+	_, tok := e.user(t, "streamnokey@b.com")
+
+	rec := postChatStream(t, e.h, tok, `{"message":"hola"}`)
+	if rec.Code != http.StatusServiceUnavailable {
+		t.Errorf("code = %d, want 503", rec.Code)
+	}
+}
+
+func TestChatStreamValidationAndAuth(t *testing.T) {
+	e := newEnv(t, true, &fakeCompleter{chatDeltas: []string{"x"}})
+	_, tok := e.user(t, "streamval@b.com")
+
+	if rec := postChatStream(t, e.h, tok, `{"message":"   "}`); rec.Code != http.StatusBadRequest {
+		t.Errorf("solo espacios code = %d, want 400", rec.Code)
+	}
+	if rec := postChatStream(t, e.h, "", `{"message":"hola"}`); rec.Code != http.StatusUnauthorized {
+		t.Errorf("sin token code = %d, want 401", rec.Code)
 	}
 }

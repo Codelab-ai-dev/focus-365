@@ -16,6 +16,13 @@ func main() {
 		log.Fatal(err)
 	}
 
+	// Aplica las migraciones pendientes al arrancar (goose es idempotente).
+	// El Dockerfile copia db/migrations a /db/migrations; en dev local el
+	// binario corre desde api/ donde el path relativo también resuelve.
+	if err := db.RunMigrations(cfg.DatabaseURL, "db/migrations"); err != nil {
+		log.Fatalf("migraciones: %v", err)
+	}
+
 	pool, err := db.NewPool(context.Background(), cfg.DatabaseURL)
 	if err != nil {
 		log.Fatalf("db: %v", err)

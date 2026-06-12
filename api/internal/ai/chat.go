@@ -2,7 +2,9 @@ package ai
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
+	"strings"
 	"time"
 
 	"github.com/focus365/api/internal/store"
@@ -33,6 +35,9 @@ type chatStreamer interface {
 type messageStore interface {
 	ListMessages(ctx context.Context, userID uuid.UUID) ([]store.AiMessage, error)
 	CreatePair(ctx context.Context, userID uuid.UUID, userText, assistantText string) (store.AiMessage, error)
+	CreatePairWithAction(ctx context.Context, userID uuid.UUID, userText, assistantText, kind string, payload []byte) (store.AiMessage, error)
+	GetMessageForAction(ctx context.Context, id, userID uuid.UUID) (store.AiMessage, error)
+	SetActionStatus(ctx context.Context, id, userID uuid.UUID, status string) (store.AiMessage, error)
 }
 
 // contextBuilder abstrae el armado del contexto (lo implementa chatContextBuilder).
@@ -95,7 +100,7 @@ func (s *ChatService) Send(ctx context.Context, userID uuid.UUID, text string, t
 	if err != nil {
 		return nil, err
 	}
-	v := Message{Role: assistant.Role, Content: assistant.Content, CreatedAt: assistant.CreatedAt}
+	v := toMessageView(assistant)
 	return &v, nil
 }
 
@@ -118,16 +123,37 @@ func (s *ChatService) SendStream(ctx context.Context, userID uuid.UUID, text str
 	}
 	history := buildHistory(rows, text)
 
-	reply, _, err := s.streamer.ChatStream(ctx, buildChatSystemPrompt(contextJSON), history, nil, onDelta)
+	reply, toolCall, err := s.streamer.ChatStream(ctx, buildChatSystemPrompt(contextJSON), history, buildChatTools(), onDelta)
 	if err != nil {
 		return nil, ErrUnavailable
+	}
+
+	if toolCall != nil {
+		kind, ok := toolNameToKind[toolCall.Name]
+		if !ok {
+			return nil, ErrUnavailable
+		}
+		payload, perr := parseActionPayload(kind, toolCall.Arguments)
+		if perr != nil {
+			return nil, ErrUnavailable
+		}
+		content := strings.TrimSpace(reply)
+		if content == "" {
+			content = actionSummary(kind, payload)
+		}
+		assistant, cerr := s.store.CreatePairWithAction(ctx, userID, text, content, kind, payload)
+		if cerr != nil {
+			return nil, cerr
+		}
+		v := toMessageView(assistant)
+		return &v, nil
 	}
 
 	assistant, err := s.store.CreatePair(ctx, userID, text, reply)
 	if err != nil {
 		return nil, err
 	}
-	v := Message{Role: assistant.Role, Content: assistant.Content, CreatedAt: assistant.CreatedAt}
+	v := toMessageView(assistant)
 	return &v, nil
 }
 
@@ -149,7 +175,16 @@ func buildHistory(rows []store.AiMessage, newText string) []ChatMsg {
 func mapMessages(rows []store.AiMessage) []Message {
 	out := make([]Message, 0, len(rows))
 	for _, r := range rows {
-		out = append(out, Message{Role: r.Role, Content: r.Content, CreatedAt: r.CreatedAt})
+		out = append(out, toMessageView(r))
 	}
 	return out
+}
+
+// toMessageView mapea la fila a la vista, incluyendo la acción si la hay.
+func toMessageView(r store.AiMessage) Message {
+	m := Message{ID: r.ID.String(), Role: r.Role, Content: r.Content, CreatedAt: r.CreatedAt}
+	if r.ActionKind != nil && r.ActionStatus != nil {
+		m.Action = &ActionView{Kind: *r.ActionKind, Payload: json.RawMessage(r.ActionPayload), Status: *r.ActionStatus}
+	}
+	return m
 }

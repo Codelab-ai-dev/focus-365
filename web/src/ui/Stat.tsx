@@ -1,14 +1,16 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { animate, useReducedMotionConfig } from "framer-motion";
 
-// Stat: etiqueta uppercase + número display con contador animado al montar.
-// Con reduced-motion el valor aparece directo (sin cuenta).
+// Stat: etiqueta uppercase + número display con contador animado. hideLabel
+// permite usarlo dentro de tiles que ya ponen su propio título. Al cambiar
+// value, anima desde el valor mostrado (no recuenta desde 0).
 export function Stat({
   label,
   value,
   prefix = "",
   suffix = "",
   format,
+  hideLabel = false,
   className = "",
 }: {
   label: string;
@@ -16,17 +18,20 @@ export function Stat({
   prefix?: string;
   suffix?: string;
   format?: (n: number) => string;
+  hideLabel?: boolean;
   className?: string;
 }) {
   const reduced = useReducedMotionConfig();
   const [display, setDisplay] = useState(reduced ? value : 0);
+  const shown = useRef(display);
+  shown.current = display;
 
   useEffect(() => {
     if (reduced) {
       setDisplay(value);
       return;
     }
-    const controls = animate(0, value, {
+    const controls = animate(shown.current, value, {
       duration: 0.6,
       ease: "easeOut",
       onUpdate: (v) => setDisplay(Math.round(v)),
@@ -37,7 +42,9 @@ export function Stat({
   const text = format ? format(display) : String(display);
   return (
     <div className={className}>
-      <div className="text-[10px] font-bold uppercase tracking-[0.12em] text-muted">{label}</div>
+      {!hideLabel && (
+        <div className="text-[10px] font-bold uppercase tracking-[0.12em] text-muted">{label}</div>
+      )}
       <div className="font-display text-2xl font-bold tracking-tight">
         {prefix}
         {text}

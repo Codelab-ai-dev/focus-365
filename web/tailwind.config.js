@@ -8,7 +8,7 @@ export default {
         surface: "var(--c-surface)",
         ink: "var(--c-ink)",
         muted: "var(--c-muted)",
-        accent: "var(--c-accent)",
+        accent: "rgb(var(--c-accent-rgb) / <alpha-value>)",
         money: { bg: "var(--c-money-bg)", fg: "var(--c-money-fg)" },
         sky: { bg: "var(--c-sky-bg)", fg: "var(--c-sky-fg)" },
         sun: { bg: "var(--c-sun-bg)", fg: "var(--c-sun-fg)" },

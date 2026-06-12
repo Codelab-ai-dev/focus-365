@@ -5,7 +5,7 @@ import { animate, useReducedMotionConfig } from "framer-motion";
 // permite usarlo dentro de tiles que ya ponen su propio título. Al cambiar
 // value, anima desde el valor mostrado (no recuenta desde 0).
 export function Stat({
-  label,
+  label = "",
   value,
   prefix = "",
   suffix = "",
@@ -13,7 +13,7 @@ export function Stat({
   hideLabel = false,
   className = "",
 }: {
-  label: string;
+  label?: string;
   value: number;
   prefix?: string;
   suffix?: string;

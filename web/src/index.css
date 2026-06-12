@@ -11,6 +11,7 @@
     --c-muted: #6b6258;
     --c-shadow: #16130e;
     --c-accent: #ff7a3d;
+    --c-accent-rgb: 255 122 61; /* triplete para modificadores de opacidad (bg-accent/30) */
     --c-money-bg: #9fd89a; --c-money-fg: #16130e;
     --c-sky-bg:   #9ec7f5; --c-sky-fg:   #16130e;
     --c-sun-bg:   #f5d76e; --c-sun-fg:   #16130e;
@@ -23,6 +24,7 @@
     --c-muted: #a89b8c;
     --c-shadow: #000000;
     --c-accent: #ff7a3d;
+    --c-accent-rgb: 255 122 61;
     --c-money-bg: #1f2b1e; --c-money-fg: #9fd89a;
     --c-sky-bg:   #1c2533; --c-sky-fg:   #9ec7f5;
     --c-sun-bg:   #2e2812; --c-sun-fg:   #f5d76e;

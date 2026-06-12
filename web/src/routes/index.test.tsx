@@ -108,7 +108,7 @@ describe("DashboardPage", () => {
 
   it("muestra la racha y el superávit en MXN", async () => {
     renderPage();
-    expect(await screen.findByText(/12/)).toBeInTheDocument();
+    expect(await screen.findByText(/12 días/)).toBeInTheDocument();
     expect(screen.getByText(/\$3,200\.00/)).toBeInTheDocument();
   });
 
@@ -155,6 +155,6 @@ describe("DashboardPage", () => {
     renderPage();
     expect(await screen.findByText(/Tu insight del día llega pronto/)).toBeInTheDocument();
     // El resto del dashboard sigue visible (la racha llega igual).
-    expect(screen.getByText(/12/)).toBeInTheDocument();
+    expect(screen.getByText(/12 días/)).toBeInTheDocument();
   });
 });

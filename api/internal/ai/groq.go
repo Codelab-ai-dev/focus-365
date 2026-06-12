@@ -168,6 +168,7 @@ type chatStreamChunk struct {
 		Delta struct {
 			Content   string `json:"content"`
 			ToolCalls []struct {
+				Index    int `json:"index"`
 				Function struct {
 					Name      string `json:"name"`
 					Arguments string `json:"arguments"`
@@ -253,6 +254,10 @@ func (c *GroqClient) ChatStream(ctx context.Context, system string, history []Ch
 			onDelta(delta.Content)
 		}
 		for _, tc := range delta.ToolCalls {
+			// Solo la primera function (index 0) cuenta: una acción por turno.
+			if tc.Index != 0 {
+				continue
+			}
 			if tc.Function.Name != "" {
 				tcName = tc.Function.Name
 			}

@@ -341,6 +341,29 @@ func TestActionCancel(t *testing.T) {
 	}
 }
 
+func TestActionConfirmInvalidPayloadIs400AndStaysProposed(t *testing.T) {
+	comp := &fakeCompleter{chatToolCall: &ai.ToolCall{
+		Name: "marcar_habito", Arguments: `{"habit_id":"3b39c1f1-58a6-4012-9b69-0a3f4f6f3a11"}`,
+	}}
+	e := newEnv(t, true, comp)
+	_, tok := e.user(t, "action-400@b.com")
+	id := proposeViaChat(t, e, tok)
+
+	rec, _ := postAction(t, e.h, tok, id, "confirm")
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("confirm code = %d, want 400, body = %s", rec.Code, rec.Body.String())
+	}
+
+	// La acción sigue proposed (se puede cancelar o reintentar).
+	_, body := getMessages(t, e.h, tok)
+	msgs, _ := body["messages"].([]any)
+	last, _ := msgs[len(msgs)-1].(map[string]any)
+	action, _ := last["action"].(map[string]any)
+	if action["status"] != "proposed" {
+		t.Errorf("status = %v, want proposed", action["status"])
+	}
+}
+
 func TestActionErrors(t *testing.T) {
 	comp := &fakeCompleter{chatToolCall: checkinToolCall()}
 	e := newEnv(t, true, comp)

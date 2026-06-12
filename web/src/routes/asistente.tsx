@@ -155,7 +155,7 @@ function AsistentePage() {
               {m.role === "assistant" && m.action && (
                 <ActionCard
                   message={m}
-                  pending={actionMutation.isPending}
+                  pending={actionMutation.isPending && actionMutation.variables?.id === m.id}
                   onResolve={(id, verb) => actionMutation.mutate({ id, verb })}
                 />
               )}

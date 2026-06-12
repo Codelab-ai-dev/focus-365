@@ -240,6 +240,25 @@ func TestGroqChatStreamTextWithToolsReturnsNilToolCall(t *testing.T) {
 	}
 }
 
+func TestGroqChatStreamMultipleToolCallsFirstWins(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		sseChunk(w, `{"choices":[{"delta":{"tool_calls":[{"index":0,"function":{"name":"registrar_checkin","arguments":"{\"mood\":8,\"energy\":6,\"discipline\":9}"}}]}}]}`)
+		sseChunk(w, `{"choices":[{"delta":{"tool_calls":[{"index":1,"function":{"name":"marcar_habito","arguments":"{\"habit_id\":\"x\"}"}}]}}]}`)
+		sseChunk(w, `[DONE]`)
+	}))
+	defer srv.Close()
+
+	c := newGroqClient(srv.URL, "k", "m")
+	_, tc, err := c.ChatStream(context.Background(), "s", []ChatMsg{{Role: "user", Content: "x"}}, nil, func(string) {})
+	if err != nil {
+		t.Fatalf("ChatStream: %v", err)
+	}
+	if tc == nil || tc.Name != "registrar_checkin" || tc.Arguments != `{"mood":8,"energy":6,"discipline":9}` {
+		t.Errorf("debe ganar la primera function: %+v", tc)
+	}
+}
+
 func TestGroqChatStreamNoToolsOmitsField(t *testing.T) {
 	var gotBody []byte
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

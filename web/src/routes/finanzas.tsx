@@ -15,14 +15,15 @@ import {
   type CycleSummary,
   type TxType,
 } from "@/lib/finances";
+import { Card } from "@/ui/Card";
+import { Chip } from "@/ui/Chip";
+import { Button } from "@/ui/Button";
+import { Input } from "@/ui/Input";
+import { Stat } from "@/ui/Stat";
+import { PageTransition } from "@/ui/PageTransition";
+import { Reveal, RevealItem } from "@/ui/Reveal";
 
 export const Route = createFileRoute("/finanzas")({ component: FinanzasPage });
-
-const STATUS_COLOR: Record<CycleSummary["status"], string> = {
-  pendiente: "text-sand-400",
-  verde: "text-streak",
-  rojo: "text-red-400",
-};
 
 function FinanzasPage() {
   const { user } = useAuth();
@@ -89,161 +90,182 @@ function FinanzasPage() {
 
   const sum = summaryQuery.data;
 
+  const netoBg =
+    sum?.status === "verde"
+      ? "bg-money-bg text-money-fg"
+      : sum?.status === "rojo"
+        ? "bg-danger-bg text-danger-fg"
+        : "";
+
   return (
-    <div className="mx-auto max-w-xl p-6">
-      <header className="flex items-center justify-between">
-        <h1 className="text-xl font-extrabold">Finanzas</h1>
-        <Link to="/" className="text-sm text-sand-400">Volver</Link>
-      </header>
-
-      {sum && (
-        <section className="mt-6 rounded-xl border border-ink-700 bg-ink-900 p-6">
-          <div className="flex items-center justify-between">
-            <span className="text-sm text-sand-400">Ciclo {sum.cycle}</span>
-            <span className={`text-sm font-bold ${STATUS_COLOR[sum.status]}`}>
-              {sum.status}
-            </span>
-          </div>
-          <p className="mt-2 text-2xl font-extrabold">{formatMXN(sum.net)}</p>
-          <p className="mt-1 text-xs text-sand-400">
-            Ingresos {formatMXN(sum.income)} · Gastos {formatMXN(sum.expense)}
-          </p>
-        </section>
-      )}
-
-      <form
-        onSubmit={(e) => {
-          e.preventDefault();
-          createMutation.mutate();
-        }}
-        className="mt-6 space-y-4 rounded-xl border border-ink-700 bg-ink-900 p-6"
-      >
-        <label className="block space-y-1">
-          <span className="text-sm text-sand-400">Tipo</span>
-          <select
-            aria-label="Tipo"
-            value={type}
-            onChange={(e) => setType(e.target.value as TxType)}
-            className="w-full rounded-lg border border-ink-700 bg-ink-800 px-3 py-2 text-sm outline-none focus:border-amber-brand"
+    <PageTransition>
+      <div className="mx-auto max-w-3xl p-6">
+        <header className="flex items-center justify-between">
+          <h1 className="font-display text-xl font-bold tracking-tight">Finanzas</h1>
+          <Link
+            to="/"
+            className="font-bold text-ink underline decoration-accent decoration-2 underline-offset-2"
           >
-            <option value="expense">Gasto</option>
-            <option value="income">Ingreso</option>
-            <option value="transfer">Transferencia</option>
-          </select>
-        </label>
+            Volver
+          </Link>
+        </header>
 
-        <label className="block space-y-1">
-          <span className="text-sm text-sand-400">Monto</span>
-          <input
-            type="number"
-            aria-label="Monto"
-            min="0"
-            step="0.01"
-            value={montoPesos}
-            onChange={(e) => setMontoPesos(e.target.value)}
-            className="w-full rounded-lg border border-ink-700 bg-ink-800 px-3 py-2 text-sm outline-none focus:border-amber-brand"
-          />
-        </label>
-
-        <label className="block space-y-1">
-          <span className="text-sm text-sand-400">Fecha</span>
-          <input
-            type="date"
-            aria-label="Fecha"
-            value={occurredOn}
-            onChange={(e) => setOccurredOn(e.target.value)}
-            className="w-full rounded-lg border border-ink-700 bg-ink-800 px-3 py-2 text-sm outline-none focus:border-amber-brand"
-          />
-        </label>
-
-        <label className="block space-y-1">
-          <span className="text-sm text-sand-400">Categoría</span>
-          <input
-            type="text"
-            aria-label="Categoría"
-            value={category}
-            onChange={(e) => setCategory(e.target.value)}
-            className="w-full rounded-lg border border-ink-700 bg-ink-800 px-3 py-2 text-sm outline-none focus:border-amber-brand"
-          />
-        </label>
-
-        <label className="block space-y-1">
-          <span className="text-sm text-sand-400">Nota</span>
-          <input
-            type="text"
-            aria-label="Nota"
-            value={remark}
-            onChange={(e) => setRemark(e.target.value)}
-            className="w-full rounded-lg border border-ink-700 bg-ink-800 px-3 py-2 text-sm outline-none focus:border-amber-brand"
-          />
-        </label>
-
-        {error && <p className="text-sm text-red-400">{error}</p>}
-
-        <button
-          type="submit"
-          disabled={createMutation.isPending}
-          className="w-full rounded-lg bg-amber-brand px-3 py-2 text-sm font-bold text-ink-950 disabled:opacity-60"
-        >
-          {createMutation.isPending ? "Guardando…" : "Guardar"}
-        </button>
-      </form>
-
-      <section className="mt-8">
-        <h2 className="text-lg font-bold">Movimientos del ciclo</h2>
-        {listQuery.data && listQuery.data.length > 0 ? (
-          <ul className="mt-3 space-y-2">
-            {listQuery.data.map((tx: Transaction) => (
-              <li
-                key={tx.id}
-                className="flex items-center justify-between rounded-lg border border-ink-700 bg-ink-900 px-4 py-2 text-sm"
-              >
-                <span>
-                  <span className="text-sand-400">{tx.occurred_on}</span>{" "}
-                  {tx.category || tx.type}
-                </span>
-                <span className="flex items-center gap-3">
-                  <span className={tx.type === "income" ? "text-streak" : ""}>
-                    {formatMXN(tx.amount)}
-                  </span>
-                  <button
-                    type="button"
-                    aria-label={`Borrar ${tx.category || tx.type}`}
-                    onClick={() => deleteMutation.mutate(tx.id)}
-                    className="text-xs text-sand-400 hover:text-red-400"
-                  >
-                    ✕
-                  </button>
-                </span>
-              </li>
-            ))}
-          </ul>
-        ) : (
-          <p className="mt-3 text-sm text-sand-400">Aún no hay movimientos.</p>
+        {sum && (
+          <Card className={`mt-6 p-6 ${netoBg}`}>
+            <div className="flex items-center justify-between">
+              <span className="text-[10px] font-bold uppercase tracking-[0.12em] text-muted">
+                Ciclo {sum.cycle}
+              </span>
+              <span className="text-sm font-bold">{sum.status}</span>
+            </div>
+            <div className="mt-4 grid grid-cols-3 gap-4">
+              <Stat label="Ingresos" value={sum.income} format={formatMXN} />
+              <Stat label="Gastos" value={sum.expense} format={formatMXN} />
+              <Stat label="Neto" value={sum.net} format={formatMXN} hideLabel />
+            </div>
+          </Card>
         )}
-      </section>
 
-      <section className="mt-8">
-        <h2 className="text-lg font-bold">Historial de ciclos</h2>
-        {cyclesQuery.data && cyclesQuery.data.length > 0 ? (
-          <ul className="mt-3 space-y-2">
-            {cyclesQuery.data.map((c: CycleSummary) => (
-              <li
-                key={c.cycle}
-                className="flex items-center justify-between rounded-lg border border-ink-700 bg-ink-900 px-4 py-2 text-sm"
+        <Card className="mt-6 p-6">
+          <form
+            onSubmit={(e) => {
+              e.preventDefault();
+              createMutation.mutate();
+            }}
+            className="space-y-4"
+          >
+            <label className="block space-y-1">
+              <span className="text-[10px] font-bold uppercase tracking-[0.12em] text-muted">Tipo</span>
+              <select
+                aria-label="Tipo"
+                value={type}
+                onChange={(e) => setType(e.target.value as TxType)}
+                className="w-full rounded-lg border-[2.5px] border-ink bg-surface px-3 py-2 text-sm text-ink outline-none transition-shadow focus:shadow-brutal-sm"
               >
-                <span className="text-sand-400">{c.cycle}</span>
-                <span className="flex items-center gap-3">
-                  <span>{formatMXN(c.net)}</span>
-                  <span className={`font-bold ${STATUS_COLOR[c.status]}`}>{c.status}</span>
-                </span>
-              </li>
-            ))}
-          </ul>
-        ) : (
-          <p className="mt-3 text-sm text-sand-400">Aún no hay ciclos.</p>
-        )}
-      </section>
-    </div>
+                <option value="expense">Gasto</option>
+                <option value="income">Ingreso</option>
+                <option value="transfer">Transferencia</option>
+              </select>
+            </label>
+
+            <label className="block space-y-1">
+              <span className="text-[10px] font-bold uppercase tracking-[0.12em] text-muted">Monto</span>
+              <Input
+                type="number"
+                aria-label="Monto"
+                min="0"
+                step="0.01"
+                value={montoPesos}
+                onChange={(e) => setMontoPesos(e.target.value)}
+              />
+            </label>
+
+            <label className="block space-y-1">
+              <span className="text-[10px] font-bold uppercase tracking-[0.12em] text-muted">Fecha</span>
+              <Input
+                type="date"
+                aria-label="Fecha"
+                value={occurredOn}
+                onChange={(e) => setOccurredOn(e.target.value)}
+              />
+            </label>
+
+            <label className="block space-y-1">
+              <span className="text-[10px] font-bold uppercase tracking-[0.12em] text-muted">Categoría</span>
+              <Input
+                type="text"
+                aria-label="Categoría"
+                value={category}
+                onChange={(e) => setCategory(e.target.value)}
+              />
+            </label>
+
+            <label className="block space-y-1">
+              <span className="text-[10px] font-bold uppercase tracking-[0.12em] text-muted">Nota</span>
+              <Input
+                type="text"
+                aria-label="Nota"
+                value={remark}
+                onChange={(e) => setRemark(e.target.value)}
+              />
+            </label>
+
+            {error && (
+              <p className="rounded-md border-2 border-ink bg-danger-bg px-3 py-2 text-sm font-bold text-danger-fg shadow-brutal-sm">
+                {error}
+              </p>
+            )}
+
+            <Button
+              type="submit"
+              disabled={createMutation.isPending}
+              className="w-full"
+            >
+              {createMutation.isPending ? "Guardando…" : "Guardar"}
+            </Button>
+          </form>
+        </Card>
+
+        <section className="mt-8">
+          <h2 className="font-display text-xl font-bold tracking-tight">Movimientos del ciclo</h2>
+          {listQuery.data && listQuery.data.length > 0 ? (
+            <Reveal className="mt-3 space-y-2">
+              {listQuery.data.map((tx: Transaction) => (
+                <RevealItem key={tx.id}>
+                  <Card className="flex items-center justify-between p-3">
+                    <span>
+                      <span className="text-muted">{tx.occurred_on}</span>{" "}
+                      {tx.category || tx.type}
+                    </span>
+                    <span className="flex items-center gap-3">
+                      {tx.type === "income" ? (
+                        <Chip variant="money">
+                          <span className="font-display font-bold">{formatMXN(tx.amount)}</span>
+                        </Chip>
+                      ) : (
+                        <Chip variant="danger">
+                          <span className="font-display font-bold">{formatMXN(tx.amount)}</span>
+                        </Chip>
+                      )}
+                      <button
+                        type="button"
+                        aria-label={`Borrar ${tx.category || tx.type}`}
+                        onClick={() => deleteMutation.mutate(tx.id)}
+                        className="text-xs text-muted hover:text-danger-fg"
+                      >
+                        ✕
+                      </button>
+                    </span>
+                  </Card>
+                </RevealItem>
+              ))}
+            </Reveal>
+          ) : (
+            <p className="mt-3 text-sm text-muted">Aún no hay movimientos.</p>
+          )}
+        </section>
+
+        <section className="mt-8">
+          <h2 className="font-display text-xl font-bold tracking-tight">Historial de ciclos</h2>
+          {cyclesQuery.data && cyclesQuery.data.length > 0 ? (
+            <Reveal className="mt-3 space-y-2">
+              {cyclesQuery.data.map((c: CycleSummary) => (
+                <RevealItem key={c.cycle}>
+                  <Card className="flex items-center justify-between p-3 text-sm">
+                    <span className="text-muted">{c.cycle}</span>
+                    <span className="flex items-center gap-3">
+                      <span className="font-display font-bold tracking-tight">{formatMXN(c.net)}</span>
+                      <span className="font-bold">{c.status}</span>
+                    </span>
+                  </Card>
+                </RevealItem>
+              ))}
+            </Reveal>
+          ) : (
+            <p className="mt-3 text-sm text-muted">Aún no hay ciclos.</p>
+          )}
+        </section>
+      </div>
+    </PageTransition>
   );
 }

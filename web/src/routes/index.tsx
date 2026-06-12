@@ -147,7 +147,7 @@ function StreakHero({ s }: { s: Snapshot }) {
         ) : (
           <>
             <div className="flex items-end gap-2">
-              <Stat label="" value={s.streak.best_current} suffix=" días" className="[&>div:first-child]:hidden" />
+              <Stat label="" value={s.streak.best_current} suffix=" días" hideLabel />
               <span className="animate-flicker text-2xl">🔥</span>
             </div>
             <span className="text-xs font-bold opacity-80">
@@ -173,7 +173,7 @@ function FinanceCard({ s }: { s: Snapshot }) {
         label=""
         value={s.finance.net}
         format={formatMXN}
-        className="[&>div:first-child]:hidden"
+        hideLabel
       />
       <span className="text-xs font-bold opacity-70">
         {s.finance.cycle} · {s.finance.status}

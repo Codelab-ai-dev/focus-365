@@ -3,6 +3,10 @@ import { useEffect, useRef, useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useAuth } from "@/lib/auth";
 import { getToday, list, upsert, todayString, type CheckIn } from "@/lib/checkins";
+import { PageTransition } from "@/ui/PageTransition";
+import { Card } from "@/ui/Card";
+import { Button } from "@/ui/Button";
+import { Reveal, RevealItem } from "@/ui/Reveal";
 
 export const Route = createFileRoute("/check-in")({ component: CheckInPage });
 
@@ -61,66 +65,80 @@ function CheckInPage() {
   if (!user) return null;
 
   return (
-    <div className="mx-auto max-w-xl p-6">
-      <header className="flex items-center justify-between">
-        <h1 className="text-xl font-extrabold">Check-in de hoy</h1>
-        <Link to="/" className="text-sm text-sand-400">Volver</Link>
-      </header>
+    <PageTransition>
+      <div className="mx-auto max-w-xl p-6">
+        <header className="flex items-center justify-between">
+          <h1 className="font-display text-xl font-bold tracking-tight">Check-in de hoy</h1>
+          <Link
+            to="/"
+            className="font-bold text-ink underline decoration-accent decoration-2 underline-offset-2 text-sm"
+          >
+            Volver
+          </Link>
+        </header>
 
-      <form
-        onSubmit={(e) => {
-          e.preventDefault();
-          mutation.mutate();
-        }}
-        className="mt-6 space-y-6 rounded-xl border border-ink-700 bg-ink-900 p-6"
-      >
-        <Slider label="Ánimo" value={mood} onChange={setMood} />
-        <Slider label="Energía" value={energy} onChange={setEnergy} />
-        <Slider label="Disciplina" value={discipline} onChange={setDiscipline} />
-
-        <label className="block space-y-1">
-          <span className="text-sm text-sand-400">Nota</span>
-          <textarea
-            aria-label="Nota"
-            value={note}
-            onChange={(e) => setNote(e.target.value)}
-            rows={3}
-            className="w-full rounded-lg border border-ink-700 bg-ink-800 px-3 py-2 text-sm outline-none focus:border-amber-brand"
-          />
-        </label>
-
-        {error && <p className="text-sm text-streak">{error}</p>}
-
-        <button
-          type="submit"
-          disabled={mutation.isPending}
-          className="w-full rounded-lg bg-amber-brand px-3 py-2 text-sm font-bold text-ink-950 disabled:opacity-60"
+        <form
+          onSubmit={(e) => {
+            e.preventDefault();
+            mutation.mutate();
+          }}
+          className="mt-6"
         >
-          {mutation.isPending ? "Guardando…" : "Guardar"}
-        </button>
-      </form>
+          <Card className="p-6 space-y-6">
+            <Slider label="Ánimo" value={mood} onChange={setMood} />
+            <Slider label="Energía" value={energy} onChange={setEnergy} />
+            <Slider label="Disciplina" value={discipline} onChange={setDiscipline} />
 
-      <section className="mt-8">
-        <h2 className="text-lg font-bold">Historial</h2>
-        {historyQuery.data && historyQuery.data.length > 0 ? (
-          <ul className="mt-3 space-y-2">
-            {historyQuery.data.map((ci: CheckIn) => (
-              <li
-                key={ci.id}
-                className="flex items-center justify-between rounded-lg border border-ink-700 bg-ink-900 px-4 py-2 text-sm"
-              >
-                <span className="text-sand-400">{ci.date}</span>
-                <span>
-                  Á{ci.mood} · E{ci.energy} · D{ci.discipline}
-                </span>
-              </li>
-            ))}
-          </ul>
-        ) : (
-          <p className="mt-3 text-sm text-sand-400">Aún no hay check-ins.</p>
-        )}
-      </section>
-    </div>
+            <label className="block space-y-1">
+              <span className="text-[10px] font-bold uppercase tracking-[0.12em] text-muted">
+                Nota
+              </span>
+              <textarea
+                aria-label="Nota"
+                value={note}
+                onChange={(e) => setNote(e.target.value)}
+                rows={3}
+                className="w-full rounded-lg border-[2.5px] border-ink bg-surface px-3 py-2 text-sm text-ink outline-none transition-shadow focus:shadow-brutal-sm"
+              />
+            </label>
+
+            {error && (
+              <p className="rounded-md border-2 border-ink bg-danger-bg px-3 py-2 text-sm font-bold text-danger-fg shadow-brutal-sm">
+                {error}
+              </p>
+            )}
+
+            <Button
+              type="submit"
+              disabled={mutation.isPending}
+              className="w-full"
+            >
+              {mutation.isPending ? "Guardando…" : "Guardar"}
+            </Button>
+          </Card>
+        </form>
+
+        <section className="mt-8">
+          <h2 className="font-display text-xl font-bold tracking-tight">Historial</h2>
+          {historyQuery.data && historyQuery.data.length > 0 ? (
+            <Reveal className="mt-3 space-y-2">
+              {historyQuery.data.map((ci: CheckIn) => (
+                <RevealItem key={ci.id}>
+                  <Card className="flex items-center justify-between px-4 py-2 text-sm">
+                    <span className="text-muted">{ci.date}</span>
+                    <span>
+                      Á{ci.mood} · E{ci.energy} · D{ci.discipline}
+                    </span>
+                  </Card>
+                </RevealItem>
+              ))}
+            </Reveal>
+          ) : (
+            <p className="mt-3 text-sm text-muted">Aún no hay check-ins.</p>
+          )}
+        </section>
+      </div>
+    </PageTransition>
   );
 }
 
@@ -136,8 +154,8 @@ function Slider({
   return (
     <label className="block space-y-1">
       <span className="flex items-center justify-between text-sm">
-        <span className="text-sand-400">{label}</span>
-        <span className="font-bold text-amber-brand">{value}</span>
+        <span className="text-[10px] font-bold uppercase tracking-[0.12em] text-muted">{label}</span>
+        <span className="font-display font-bold text-accent">{value}</span>
       </span>
       <input
         type="range"
@@ -147,7 +165,7 @@ function Slider({
         aria-label={label}
         value={value}
         onChange={(e) => onChange(Number(e.target.value))}
-        className="w-full accent-amber-brand"
+        className="w-full accent-accent"
       />
     </label>
   );

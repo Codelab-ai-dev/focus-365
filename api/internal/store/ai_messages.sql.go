@@ -14,7 +14,7 @@ import (
 const createMessage = `-- name: CreateMessage :one
 INSERT INTO ai_messages (user_id, role, content)
 VALUES ($1, $2, $3)
-RETURNING id, user_id, role, content, created_at
+RETURNING id, user_id, role, content, created_at, action_kind, action_payload, action_status
 `
 
 type CreateMessageParams struct {
@@ -32,12 +32,79 @@ func (q *Queries) CreateMessage(ctx context.Context, arg CreateMessageParams) (A
 		&i.Role,
 		&i.Content,
 		&i.CreatedAt,
+		&i.ActionKind,
+		&i.ActionPayload,
+		&i.ActionStatus,
+	)
+	return i, err
+}
+
+const createMessageWithAction = `-- name: CreateMessageWithAction :one
+INSERT INTO ai_messages (user_id, role, content, action_kind, action_payload, action_status)
+VALUES ($1, $2, $3, $4, $5, $6)
+RETURNING id, user_id, role, content, created_at, action_kind, action_payload, action_status
+`
+
+type CreateMessageWithActionParams struct {
+	UserID        uuid.UUID `json:"user_id"`
+	Role          string    `json:"role"`
+	Content       string    `json:"content"`
+	ActionKind    *string   `json:"action_kind"`
+	ActionPayload []byte    `json:"action_payload"`
+	ActionStatus  *string   `json:"action_status"`
+}
+
+func (q *Queries) CreateMessageWithAction(ctx context.Context, arg CreateMessageWithActionParams) (AiMessage, error) {
+	row := q.db.QueryRow(ctx, createMessageWithAction,
+		arg.UserID,
+		arg.Role,
+		arg.Content,
+		arg.ActionKind,
+		arg.ActionPayload,
+		arg.ActionStatus,
+	)
+	var i AiMessage
+	err := row.Scan(
+		&i.ID,
+		&i.UserID,
+		&i.Role,
+		&i.Content,
+		&i.CreatedAt,
+		&i.ActionKind,
+		&i.ActionPayload,
+		&i.ActionStatus,
+	)
+	return i, err
+}
+
+const getMessageForAction = `-- name: GetMessageForAction :one
+SELECT id, user_id, role, content, created_at, action_kind, action_payload, action_status FROM ai_messages
+WHERE id = $1 AND user_id = $2
+`
+
+type GetMessageForActionParams struct {
+	ID     uuid.UUID `json:"id"`
+	UserID uuid.UUID `json:"user_id"`
+}
+
+func (q *Queries) GetMessageForAction(ctx context.Context, arg GetMessageForActionParams) (AiMessage, error) {
+	row := q.db.QueryRow(ctx, getMessageForAction, arg.ID, arg.UserID)
+	var i AiMessage
+	err := row.Scan(
+		&i.ID,
+		&i.UserID,
+		&i.Role,
+		&i.Content,
+		&i.CreatedAt,
+		&i.ActionKind,
+		&i.ActionPayload,
+		&i.ActionStatus,
 	)
 	return i, err
 }
 
 const listMessages = `-- name: ListMessages :many
-SELECT id, user_id, role, content, created_at FROM ai_messages
+SELECT id, user_id, role, content, created_at, action_kind, action_payload, action_status FROM ai_messages
 WHERE user_id = $1
 ORDER BY created_at ASC
 `
@@ -57,6 +124,9 @@ func (q *Queries) ListMessages(ctx context.Context, userID uuid.UUID) ([]AiMessa
 			&i.Role,
 			&i.Content,
 			&i.CreatedAt,
+			&i.ActionKind,
+			&i.ActionPayload,
+			&i.ActionStatus,
 		); err != nil {
 			return nil, err
 		}
@@ -66,4 +136,33 @@ func (q *Queries) ListMessages(ctx context.Context, userID uuid.UUID) ([]AiMessa
 		return nil, err
 	}
 	return items, nil
+}
+
+const setActionStatus = `-- name: SetActionStatus :one
+UPDATE ai_messages
+SET action_status = $3
+WHERE id = $1 AND user_id = $2 AND action_status = 'proposed'
+RETURNING id, user_id, role, content, created_at, action_kind, action_payload, action_status
+`
+
+type SetActionStatusParams struct {
+	ID           uuid.UUID `json:"id"`
+	UserID       uuid.UUID `json:"user_id"`
+	ActionStatus *string   `json:"action_status"`
+}
+
+func (q *Queries) SetActionStatus(ctx context.Context, arg SetActionStatusParams) (AiMessage, error) {
+	row := q.db.QueryRow(ctx, setActionStatus, arg.ID, arg.UserID, arg.ActionStatus)
+	var i AiMessage
+	err := row.Scan(
+		&i.ID,
+		&i.UserID,
+		&i.Role,
+		&i.Content,
+		&i.CreatedAt,
+		&i.ActionKind,
+		&i.ActionPayload,
+		&i.ActionStatus,
+	)
+	return i, err
 }

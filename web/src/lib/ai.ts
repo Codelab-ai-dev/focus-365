@@ -11,9 +11,17 @@ export function getInsight(): Promise<Insight> {
   return apiFetch<Insight>(`/api/v1/ai/insight?today=${todayString()}`);
 }
 
+export type Action = {
+  kind: string;
+  payload: Record<string, unknown>;
+  status: "proposed" | "done" | "cancelled";
+};
+
 export type Message = {
+  id: string;
   role: string;
   content: string;
+  action?: Action;
   created_at: string;
 };
 
@@ -28,6 +36,18 @@ export function sendMessage(message: string): Promise<Message> {
     method: "POST",
     body: JSON.stringify({ message }),
   }).then((r) => r.reply);
+}
+
+export function confirmAction(id: string): Promise<Message> {
+  return apiFetch<{ message: Message }>(`/api/v1/ai/actions/${id}/confirm`, {
+    method: "POST",
+  }).then((r) => r.message);
+}
+
+export function cancelAction(id: string): Promise<Message> {
+  return apiFetch<{ message: Message }>(`/api/v1/ai/actions/${id}/cancel`, {
+    method: "POST",
+  }).then((r) => r.message);
 }
 
 // sendMessageStream envía el mensaje al endpoint SSE y entrega los deltas vía

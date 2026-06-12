@@ -1,12 +1,17 @@
 package ai_test
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
+
+	"github.com/focus365/api/internal/ai"
+	"github.com/focus365/api/internal/store"
+	"github.com/google/uuid"
 )
 
 func postChat(t *testing.T, h http.Handler, tok, body string) (*httptest.ResponseRecorder, map[string]any) {
@@ -235,5 +240,150 @@ func TestChatStreamValidationAndAuth(t *testing.T) {
 	}
 	if rec := postChatStream(t, e.h, "", `{"message":"hola"}`); rec.Code != http.StatusUnauthorized {
 		t.Errorf("sin token code = %d, want 401", rec.Code)
+	}
+}
+
+func postAction(t *testing.T, h http.Handler, tok, id, verb string) (*httptest.ResponseRecorder, map[string]any) {
+	t.Helper()
+	req := httptest.NewRequest(http.MethodPost, "/ai/actions/"+id+"/"+verb+"?today="+today, nil)
+	if tok != "" {
+		req.Header.Set("Authorization", "Bearer "+tok)
+	}
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+	var out map[string]any
+	_ = json.Unmarshal(rec.Body.Bytes(), &out)
+	return rec, out
+}
+
+// proposeViaChat dispara el chat/stream con un fake que devuelve un tool call
+// y extrae el id del mensaje propuesto desde el historial.
+func proposeViaChat(t *testing.T, e *env, tok string) string {
+	t.Helper()
+	rec := postChatStream(t, e.h, tok, `{"message":"registra mi check-in: 8 6 9"}`)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("chat/stream code = %d, body = %s", rec.Code, rec.Body.String())
+	}
+	_, body := getMessages(t, e.h, tok)
+	msgs, _ := body["messages"].([]any)
+	if len(msgs) == 0 {
+		t.Fatal("sin mensajes tras proponer")
+	}
+	last, _ := msgs[len(msgs)-1].(map[string]any)
+	action, _ := last["action"].(map[string]any)
+	if action == nil || action["status"] != "proposed" {
+		t.Fatalf("último mensaje sin acción proposed: %v", last)
+	}
+	id, _ := last["id"].(string)
+	if id == "" {
+		t.Fatal("mensaje sin id")
+	}
+	return id
+}
+
+func checkinToolCall() *ai.ToolCall {
+	return &ai.ToolCall{Name: "registrar_checkin", Arguments: `{"mood":8,"energy":6,"discipline":9}`}
+}
+
+func TestActionConfirmHappyPath(t *testing.T) {
+	comp := &fakeCompleter{chatToolCall: checkinToolCall()}
+	e := newEnv(t, true, comp)
+	uid, tok := e.user(t, "action-ok@b.com")
+	id := proposeViaChat(t, e, tok)
+
+	rec, body := postAction(t, e.h, tok, id, "confirm")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("confirm code = %d, body = %s", rec.Code, rec.Body.String())
+	}
+	msg, _ := body["message"].(map[string]any)
+	action, _ := msg["action"].(map[string]any)
+	if action["status"] != "done" {
+		t.Errorf("status = %v", action)
+	}
+
+	// El check-in quedó escrito de verdad.
+	ci, err := e.q.GetCheckInByDate(context.Background(), store.GetCheckInByDateParams{
+		UserID: uid, Date: dayTime(t),
+	})
+	if err != nil {
+		t.Fatalf("check-in no escrito: %v", err)
+	}
+	if ci.Mood != 8 || ci.Energy != 6 || ci.Discipline != 9 {
+		t.Errorf("check-in = %+v", ci)
+	}
+
+	// Doble confirm → 409.
+	if rec2, _ := postAction(t, e.h, tok, id, "confirm"); rec2.Code != http.StatusConflict {
+		t.Errorf("doble confirm code = %d, want 409", rec2.Code)
+	}
+}
+
+func TestActionCancel(t *testing.T) {
+	comp := &fakeCompleter{chatToolCall: checkinToolCall()}
+	e := newEnv(t, true, comp)
+	uid, tok := e.user(t, "action-cancel@b.com")
+	id := proposeViaChat(t, e, tok)
+
+	rec, body := postAction(t, e.h, tok, id, "cancel")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("cancel code = %d", rec.Code)
+	}
+	msg, _ := body["message"].(map[string]any)
+	action, _ := msg["action"].(map[string]any)
+	if action["status"] != "cancelled" {
+		t.Errorf("status = %v", action)
+	}
+	// Nada se escribió.
+	if _, err := e.q.GetCheckInByDate(context.Background(), store.GetCheckInByDateParams{
+		UserID: uid, Date: dayTime(t),
+	}); err == nil {
+		t.Error("cancelar no debe escribir el check-in")
+	}
+}
+
+func TestActionConfirmInvalidPayloadIs400AndStaysProposed(t *testing.T) {
+	comp := &fakeCompleter{chatToolCall: &ai.ToolCall{
+		Name: "marcar_habito", Arguments: `{"habit_id":"3b39c1f1-58a6-4012-9b69-0a3f4f6f3a11"}`,
+	}}
+	e := newEnv(t, true, comp)
+	_, tok := e.user(t, "action-400@b.com")
+	id := proposeViaChat(t, e, tok)
+
+	rec, _ := postAction(t, e.h, tok, id, "confirm")
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("confirm code = %d, want 400, body = %s", rec.Code, rec.Body.String())
+	}
+
+	// La acción sigue proposed (se puede cancelar o reintentar).
+	_, body := getMessages(t, e.h, tok)
+	msgs, _ := body["messages"].([]any)
+	last, _ := msgs[len(msgs)-1].(map[string]any)
+	action, _ := last["action"].(map[string]any)
+	if action["status"] != "proposed" {
+		t.Errorf("status = %v, want proposed", action["status"])
+	}
+}
+
+func TestActionErrors(t *testing.T) {
+	comp := &fakeCompleter{chatToolCall: checkinToolCall()}
+	e := newEnv(t, true, comp)
+	_, tok := e.user(t, "action-err@b.com")
+
+	// id inexistente → 404; id malformado → 404; sin token → 401.
+	if rec, _ := postAction(t, e.h, tok, uuid.New().String(), "confirm"); rec.Code != http.StatusNotFound {
+		t.Errorf("inexistente code = %d, want 404", rec.Code)
+	}
+	if rec, _ := postAction(t, e.h, tok, "no-uuid", "confirm"); rec.Code != http.StatusNotFound {
+		t.Errorf("uuid malformado code = %d, want 404", rec.Code)
+	}
+	if rec, _ := postAction(t, e.h, "", uuid.New().String(), "confirm"); rec.Code != http.StatusUnauthorized {
+		t.Errorf("sin token code = %d, want 401", rec.Code)
+	}
+
+	// El mensaje de otro usuario no se puede confirmar.
+	idA := proposeViaChat(t, e, tok)
+	_, tokB := e.user(t, "action-eve@b.com")
+	if rec, _ := postAction(t, e.h, tokB, idA, "confirm"); rec.Code != http.StatusNotFound {
+		t.Errorf("cross-user code = %d, want 404", rec.Code)
 	}
 }

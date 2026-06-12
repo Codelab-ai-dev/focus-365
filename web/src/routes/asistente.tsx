@@ -2,9 +2,70 @@ import { createFileRoute, useNavigate, Link } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useAuth } from "@/lib/auth";
-import { getMessages, sendMessageStream, type Message } from "@/lib/ai";
+import { getMessages, sendMessageStream, confirmAction, cancelAction, type Message } from "@/lib/ai";
 
 export const Route = createFileRoute("/asistente")({ component: AsistentePage });
+
+const ACTION_TITLES: Record<string, string> = {
+  checkin: "Check-in de hoy",
+  movimiento: "Movimiento",
+  habito: "Hábito",
+  meta: "Meta",
+};
+
+function actionDetails(action: NonNullable<Message["action"]>): string {
+  const p = action.payload as Record<string, unknown>;
+  switch (action.kind) {
+    case "checkin":
+      return `Ánimo ${p.mood} · Energía ${p.energy} · Disciplina ${p.discipline}`;
+    case "movimiento":
+      return `${p.type === "income" ? "Ingreso" : "Gasto"} de $${(Number(p.amount_centavos) / 100).toFixed(2)} en ${p.category}`;
+    case "habito":
+      return "Marcar como hecho hoy";
+    case "meta":
+      return `Progreso al ${p.progress}%`;
+    default:
+      return "";
+  }
+}
+
+function ActionCard({
+  message,
+  pending,
+  onResolve,
+}: {
+  message: Message;
+  pending: boolean;
+  onResolve: (id: string, verb: "confirm" | "cancel") => void;
+}) {
+  const action = message.action!;
+  return (
+    <div className="mt-2 rounded-lg border border-amber-brand/40 bg-ink-800 p-3 text-sm">
+      <p className="font-bold">{ACTION_TITLES[action.kind] ?? "Acción"}</p>
+      <p className="text-sand-400">{actionDetails(action)}</p>
+      {action.status === "proposed" && (
+        <div className="mt-2 flex gap-2">
+          <button
+            onClick={() => onResolve(message.id, "confirm")}
+            disabled={pending}
+            className="rounded-lg bg-amber-brand px-3 py-1 text-xs font-bold text-ink-950 disabled:opacity-60"
+          >
+            Confirmar
+          </button>
+          <button
+            onClick={() => onResolve(message.id, "cancel")}
+            disabled={pending}
+            className="rounded-lg border border-ink-700 px-3 py-1 text-xs disabled:opacity-60"
+          >
+            Cancelar
+          </button>
+        </div>
+      )}
+      {action.status === "done" && <p className="mt-2 text-xs font-bold text-amber-brand">✓ Hecha</p>}
+      {action.status === "cancelled" && <p className="mt-2 text-xs text-sand-400">Cancelada</p>}
+    </div>
+  );
+}
 
 function AsistentePage() {
   const { user } = useAuth();
@@ -25,6 +86,19 @@ function AsistentePage() {
   const [error, setError] = useState<string | null>(null);
   const [streaming, setStreaming] = useState<{ question: string; partial: string } | null>(null);
 
+  const actionMutation = useMutation({
+    mutationFn: ({ id, verb }: { id: string; verb: "confirm" | "cancel" }) =>
+      verb === "confirm" ? confirmAction(id) : cancelAction(id),
+    onSuccess: (updated) => {
+      setError(null);
+      qc.setQueryData<Message[]>(["ai-messages"], (prev) =>
+        (prev ?? []).map((m) => (m.id === updated.id ? updated : m))
+      );
+    },
+    onError: (err) =>
+      setError(err instanceof Error ? err.message : "No se pudo resolver la acción"),
+  });
+
   const mutation = useMutation({
     mutationFn: (message: string) => {
       setStreaming({ question: message, partial: "" });
@@ -39,7 +113,7 @@ function AsistentePage() {
       // persistida antes de quitar las burbujas — evita el parpadeo.
       qc.setQueryData<Message[]>(["ai-messages"], (prev) => [
         ...(prev ?? []),
-        { role: "user", content: message, created_at: reply.created_at },
+        { id: "", role: "user", content: message, created_at: reply.created_at },
         reply,
       ]);
       setStreaming(null);
@@ -78,6 +152,13 @@ function AsistentePage() {
               }
             >
               {m.content}
+              {m.role === "assistant" && m.action && (
+                <ActionCard
+                  message={m}
+                  pending={actionMutation.isPending && actionMutation.variables?.id === m.id}
+                  onResolve={(id, verb) => actionMutation.mutate({ id, verb })}
+                />
+              )}
             </div>
           ))
         )}

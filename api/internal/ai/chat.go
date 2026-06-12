@@ -2,11 +2,14 @@ package ai
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
+	"strings"
 	"time"
 
 	"github.com/focus365/api/internal/store"
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
 )
 
 // ErrUnavailable indica que la IA no está disponible (sin clave o fallo de Groq).
@@ -24,7 +27,7 @@ type chatCompleter interface {
 
 // chatStreamer abstrae la llamada de chat en streaming (testeable con fake).
 type chatStreamer interface {
-	ChatStream(ctx context.Context, system string, history []ChatMsg, onDelta func(string)) (string, error)
+	ChatStream(ctx context.Context, system string, history []ChatMsg, tools []Tool, onDelta func(string)) (string, *ToolCall, error)
 }
 
 // messageStore lee el historial y persiste el par usuario+asistente del chat.
@@ -33,6 +36,9 @@ type chatStreamer interface {
 type messageStore interface {
 	ListMessages(ctx context.Context, userID uuid.UUID) ([]store.AiMessage, error)
 	CreatePair(ctx context.Context, userID uuid.UUID, userText, assistantText string) (store.AiMessage, error)
+	CreatePairWithAction(ctx context.Context, userID uuid.UUID, userText, assistantText, kind string, payload []byte) (store.AiMessage, error)
+	GetMessageForAction(ctx context.Context, id, userID uuid.UUID) (store.AiMessage, error)
+	SetActionStatus(ctx context.Context, id, userID uuid.UUID, status string) (store.AiMessage, error)
 }
 
 // contextBuilder abstrae el armado del contexto (lo implementa chatContextBuilder).
@@ -46,14 +52,15 @@ type ChatService struct {
 	store    messageStore
 	groq     chatCompleter
 	streamer chatStreamer
+	exec     *actionExecutor
 	hasKey   bool
 }
 
 // NewChatService inyecta el constructor de contexto, el store de mensajes, los
-// clientes de chat bloqueante y streaming (GroqClient implementa ambos) y si
-// hay clave configurada.
-func NewChatService(ctxb contextBuilder, q messageStore, c chatCompleter, s chatStreamer, hasKey bool) *ChatService {
-	return &ChatService{ctxb: ctxb, store: q, groq: c, streamer: s, hasKey: hasKey}
+// clientes de chat bloqueante y streaming (GroqClient implementa ambos), el
+// ejecutor de acciones y si hay clave configurada.
+func NewChatService(ctxb contextBuilder, q messageStore, c chatCompleter, s chatStreamer, exec *actionExecutor, hasKey bool) *ChatService {
+	return &ChatService{ctxb: ctxb, store: q, groq: c, streamer: s, exec: exec, hasKey: hasKey}
 }
 
 // History devuelve el historial completo del usuario, mapeado a la vista.
@@ -95,7 +102,7 @@ func (s *ChatService) Send(ctx context.Context, userID uuid.UUID, text string, t
 	if err != nil {
 		return nil, err
 	}
-	v := Message{Role: assistant.Role, Content: assistant.Content, CreatedAt: assistant.CreatedAt}
+	v := toMessageView(assistant)
 	return &v, nil
 }
 
@@ -118,16 +125,37 @@ func (s *ChatService) SendStream(ctx context.Context, userID uuid.UUID, text str
 	}
 	history := buildHistory(rows, text)
 
-	reply, err := s.streamer.ChatStream(ctx, buildChatSystemPrompt(contextJSON), history, onDelta)
+	reply, toolCall, err := s.streamer.ChatStream(ctx, buildChatSystemPrompt(contextJSON), history, buildChatTools(), onDelta)
 	if err != nil {
 		return nil, ErrUnavailable
+	}
+
+	if toolCall != nil {
+		kind, ok := toolNameToKind[toolCall.Name]
+		if !ok {
+			return nil, ErrUnavailable
+		}
+		payload, perr := parseActionPayload(kind, toolCall.Arguments)
+		if perr != nil {
+			return nil, ErrUnavailable
+		}
+		content := strings.TrimSpace(reply)
+		if content == "" {
+			content = actionSummary(kind, payload)
+		}
+		assistant, cerr := s.store.CreatePairWithAction(ctx, userID, text, content, kind, payload)
+		if cerr != nil {
+			return nil, cerr
+		}
+		v := toMessageView(assistant)
+		return &v, nil
 	}
 
 	assistant, err := s.store.CreatePair(ctx, userID, text, reply)
 	if err != nil {
 		return nil, err
 	}
-	v := Message{Role: assistant.Role, Content: assistant.Content, CreatedAt: assistant.CreatedAt}
+	v := toMessageView(assistant)
 	return &v, nil
 }
 
@@ -149,7 +177,72 @@ func buildHistory(rows []store.AiMessage, newText string) []ChatMsg {
 func mapMessages(rows []store.AiMessage) []Message {
 	out := make([]Message, 0, len(rows))
 	for _, r := range rows {
-		out = append(out, Message{Role: r.Role, Content: r.Content, CreatedAt: r.CreatedAt})
+		out = append(out, toMessageView(r))
 	}
 	return out
+}
+
+// toMessageView mapea la fila a la vista, incluyendo la acción si la hay.
+func toMessageView(r store.AiMessage) Message {
+	m := Message{ID: r.ID.String(), Role: r.Role, Content: r.Content, CreatedAt: r.CreatedAt}
+	if r.ActionKind != nil && r.ActionStatus != nil {
+		m.Action = &ActionView{Kind: *r.ActionKind, Payload: json.RawMessage(r.ActionPayload), Status: *r.ActionStatus}
+	}
+	return m
+}
+
+// ConfirmAction ejecuta la acción propuesta del mensaje y la marca done.
+// Solo transiciona si la ejecución fue exitosa.
+func (s *ChatService) ConfirmAction(ctx context.Context, userID, messageID uuid.UUID, today time.Time) (*Message, error) {
+	row, err := s.store.GetMessageForAction(ctx, messageID, userID)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, ErrActionNotFound
+		}
+		return nil, err
+	}
+	if row.ActionKind == nil || row.ActionStatus == nil {
+		return nil, ErrActionNotFound
+	}
+	if *row.ActionStatus != "proposed" {
+		return nil, ErrActionConflict
+	}
+	if err := s.exec.execute(ctx, userID, *row.ActionKind, row.ActionPayload, today); err != nil {
+		return nil, err
+	}
+	upd, err := s.store.SetActionStatus(ctx, messageID, userID, "done")
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, ErrActionConflict
+		}
+		return nil, err
+	}
+	v := toMessageView(upd)
+	return &v, nil
+}
+
+// CancelAction marca la propuesta como cancelada sin ejecutar nada.
+func (s *ChatService) CancelAction(ctx context.Context, userID, messageID uuid.UUID) (*Message, error) {
+	row, err := s.store.GetMessageForAction(ctx, messageID, userID)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, ErrActionNotFound
+		}
+		return nil, err
+	}
+	if row.ActionKind == nil || row.ActionStatus == nil {
+		return nil, ErrActionNotFound
+	}
+	if *row.ActionStatus != "proposed" {
+		return nil, ErrActionConflict
+	}
+	upd, err := s.store.SetActionStatus(ctx, messageID, userID, "cancelled")
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, ErrActionConflict
+		}
+		return nil, err
+	}
+	v := toMessageView(upd)
+	return &v, nil
 }

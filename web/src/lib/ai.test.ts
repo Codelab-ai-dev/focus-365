@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, afterEach } from "vitest";
-import { getInsight, getMessages, sendMessage, sendMessageStream, type Insight, type Message } from "./ai";
+import { getInsight, getMessages, sendMessage, sendMessageStream, confirmAction, cancelAction, type Insight, type Message } from "./ai";
 import { ApiError } from "./api";
 
 function okJson(data: unknown) {
@@ -33,8 +33,8 @@ describe("getMessages", () => {
 
   it("hace GET a /api/v1/ai/messages y devuelve el array", async () => {
     const messages: Message[] = [
-      { role: "user", content: "hola", created_at: "2026-06-11T10:00:00Z" },
-      { role: "assistant", content: "qué tal", created_at: "2026-06-11T10:00:01Z" },
+      { id: "m1", role: "user", content: "hola", created_at: "2026-06-11T10:00:00Z" },
+      { id: "m2", role: "assistant", content: "qué tal", created_at: "2026-06-11T10:00:01Z" },
     ];
     const fetchMock = vi.fn((_url: string, _opts?: RequestInit) =>
       okJson({ messages })
@@ -54,6 +54,7 @@ describe("sendMessage", () => {
 
   it("hace POST a /api/v1/ai/chat con el mensaje y devuelve el reply", async () => {
     const reply: Message = {
+      id: "m3",
       role: "assistant",
       content: "Vas verde este ciclo.",
       created_at: "2026-06-11T10:00:02Z",
@@ -166,5 +167,54 @@ describe("sendMessageStream", () => {
     );
 
     await expect(sendMessageStream("hola", () => {})).rejects.toThrowError(/cortó/);
+  });
+});
+
+describe("confirmAction / cancelAction", () => {
+  afterEach(() => vi.restoreAllMocks());
+
+  const done: Message = {
+    id: "m1",
+    role: "assistant",
+    content: "Propongo registrar tu check-in.",
+    action: { kind: "checkin", payload: { mood: 8, energy: 6, discipline: 9 }, status: "done" },
+    created_at: "2026-06-11T10:00:02Z",
+  };
+
+  it("confirmAction hace POST al endpoint y devuelve el mensaje", async () => {
+    const fetchMock = vi.fn((_url: string, _opts?: RequestInit) =>
+      Promise.resolve(new Response(JSON.stringify({ message: done }), { status: 200 }))
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const got = await confirmAction("m1");
+    expect(got).toEqual(done);
+    const [url, opts] = fetchMock.mock.calls[0];
+    expect(url).toBe("/api/v1/ai/actions/m1/confirm");
+    expect(opts?.method).toBe("POST");
+  });
+
+  it("cancelAction hace POST al endpoint de cancelar", async () => {
+    const cancelled = { ...done, action: { ...done.action!, status: "cancelled" as const } };
+    const fetchMock = vi.fn((_url: string, _opts?: RequestInit) =>
+      Promise.resolve(new Response(JSON.stringify({ message: cancelled }), { status: 200 }))
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const got = await cancelAction("m1");
+    expect(got.action?.status).toBe("cancelled");
+    expect(fetchMock.mock.calls[0][0]).toBe("/api/v1/ai/actions/m1/cancel");
+  });
+
+  it("confirmAction propaga el error del backend (409)", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(() =>
+        Promise.resolve(
+          new Response(JSON.stringify({ error: "la acción ya fue resuelta" }), { status: 409 })
+        )
+      )
+    );
+    await expect(confirmAction("m1")).rejects.toThrowError("la acción ya fue resuelta");
   });
 });

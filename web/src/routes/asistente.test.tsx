@@ -63,6 +63,82 @@ function sseBody(chunks: string[]) {
   });
 }
 
+function proposedMessages() {
+  return {
+    messages: [
+      { id: "u1", role: "user", content: "registra mi check-in", created_at: "2026-06-11T10:00:00Z" },
+      {
+        id: "m1",
+        role: "assistant",
+        content: "Propongo registrar tu check-in de hoy: ánimo 8, energía 6, disciplina 9.",
+        action: { kind: "checkin", payload: { mood: 8, energy: 6, discipline: 9 }, status: "proposed" },
+        created_at: "2026-06-11T10:00:01Z",
+      },
+    ],
+  };
+}
+
+it("una acción proposed muestra botones y confirmar la pasa a hecha", async () => {
+  const fetchMock = vi.fn((url: string, opts?: RequestInit) => {
+    if (url === "/api/v1/ai/actions/m1/confirm" && opts?.method === "POST") {
+      const done = proposedMessages().messages[1];
+      done.action!.status = "done";
+      return Promise.resolve(new Response(JSON.stringify({ message: done }), { status: 200 }));
+    }
+    return Promise.resolve(new Response(JSON.stringify(proposedMessages()), { status: 200 }));
+  });
+  vi.stubGlobal("fetch", fetchMock);
+
+  renderPage();
+  expect(await screen.findByRole("button", { name: "Confirmar" })).toBeInTheDocument();
+  expect(screen.getByRole("button", { name: "Cancelar" })).toBeInTheDocument();
+
+  await userEvent.click(screen.getByRole("button", { name: "Confirmar" }));
+
+  expect(await screen.findByText(/Hecha/)).toBeInTheDocument();
+  expect(screen.queryByRole("button", { name: "Confirmar" })).toBeNull();
+});
+
+it("cancelar deja la tarjeta como cancelada sin ejecutar", async () => {
+  const fetchMock = vi.fn((url: string, opts?: RequestInit) => {
+    if (url === "/api/v1/ai/actions/m1/cancel" && opts?.method === "POST") {
+      const cancelled = proposedMessages().messages[1];
+      cancelled.action!.status = "cancelled";
+      return Promise.resolve(new Response(JSON.stringify({ message: cancelled }), { status: 200 }));
+    }
+    return Promise.resolve(new Response(JSON.stringify(proposedMessages()), { status: 200 }));
+  });
+  vi.stubGlobal("fetch", fetchMock);
+
+  renderPage();
+  await userEvent.click(await screen.findByRole("button", { name: "Cancelar" }));
+
+  expect(await screen.findByText(/Cancelada/)).toBeInTheDocument();
+  const confirmCalls = fetchMock.mock.calls.filter(([u]) => String(u).includes("/confirm"));
+  expect(confirmCalls).toHaveLength(0);
+});
+
+it("mensajes sin acción no muestran tarjeta ni botones", async () => {
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(() =>
+      Promise.resolve(
+        new Response(
+          JSON.stringify({
+            messages: [
+              { id: "m2", role: "assistant", content: "Vas bien.", created_at: "2026-06-11T10:00:01Z" },
+            ],
+          }),
+          { status: 200 }
+        )
+      )
+    )
+  );
+  renderPage();
+  expect(await screen.findByText("Vas bien.")).toBeInTheDocument();
+  expect(screen.queryByRole("button", { name: "Confirmar" })).toBeNull();
+});
+
 describe("AsistentePage", () => {
   afterEach(() => vi.restoreAllMocks());
 
@@ -74,8 +150,8 @@ describe("AsistentePage", () => {
           new Response(
             JSON.stringify({
               messages: [
-                { role: "user", content: "¿cómo voy?", created_at: "2026-06-11T10:00:00Z" },
-                { role: "assistant", content: "Vas verde.", created_at: "2026-06-11T10:00:01Z" },
+                { id: "m1", role: "user", content: "¿cómo voy?", created_at: "2026-06-11T10:00:00Z" },
+                { id: "m2", role: "assistant", content: "Vas verde.", created_at: "2026-06-11T10:00:01Z" },
               ],
             }),
             { status: 200 }

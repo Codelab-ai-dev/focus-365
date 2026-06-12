@@ -53,3 +53,42 @@ func (s *pgChatStore) CreatePair(ctx context.Context, userID uuid.UUID, userText
 	}
 	return assistant, nil
 }
+
+// CreatePairWithAction es CreatePair pero el mensaje del asistente lleva una
+// acción propuesta (kind + payload + status 'proposed'). Misma transacción.
+func (s *pgChatStore) CreatePairWithAction(ctx context.Context, userID uuid.UUID, userText, assistantText, kind string, payload []byte) (store.AiMessage, error) {
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return store.AiMessage{}, err
+	}
+	defer tx.Rollback(ctx)
+	qtx := s.q.WithTx(tx)
+
+	if _, err := qtx.CreateMessage(ctx, store.CreateMessageParams{
+		UserID: userID, Role: "user", Content: userText,
+	}); err != nil {
+		return store.AiMessage{}, err
+	}
+	status := "proposed"
+	assistant, err := qtx.CreateMessageWithAction(ctx, store.CreateMessageWithActionParams{
+		UserID: userID, Role: "assistant", Content: assistantText,
+		ActionKind: &kind, ActionPayload: payload, ActionStatus: &status,
+	})
+	if err != nil {
+		return store.AiMessage{}, err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return store.AiMessage{}, err
+	}
+	return assistant, nil
+}
+
+// GetMessageForAction y SetActionStatus exponen las queries con el pool simple
+// (sin transacción): la transición atómica la garantiza el WHERE de la query.
+func (s *pgChatStore) GetMessageForAction(ctx context.Context, id, userID uuid.UUID) (store.AiMessage, error) {
+	return s.q.GetMessageForAction(ctx, store.GetMessageForActionParams{ID: id, UserID: userID})
+}
+
+func (s *pgChatStore) SetActionStatus(ctx context.Context, id, userID uuid.UUID, status string) (store.AiMessage, error) {
+	return s.q.SetActionStatus(ctx, store.SetActionStatusParams{ID: id, UserID: userID, ActionStatus: &status})
+}

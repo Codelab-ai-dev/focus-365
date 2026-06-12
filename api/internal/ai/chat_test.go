@@ -17,7 +17,9 @@ type fakeChatGroq struct {
 	called      int
 	lastSystem  string
 	lastHistory []ChatMsg
+	lastTools   []Tool
 	chatDeltas  []string
+	toolCall    *ToolCall
 }
 
 func (f *fakeChatGroq) Chat(ctx context.Context, system string, history []ChatMsg) (string, error) {
@@ -29,19 +31,20 @@ func (f *fakeChatGroq) Chat(ctx context.Context, system string, history []ChatMs
 
 // ChatStream del fake: emite chatDeltas en orden y devuelve su concatenación,
 // o err si está seteado (simula corte a medias tras emitir los deltas).
-func (f *fakeChatGroq) ChatStream(ctx context.Context, system string, history []ChatMsg, onDelta func(string)) (string, error) {
+func (f *fakeChatGroq) ChatStream(ctx context.Context, system string, history []ChatMsg, tools []Tool, onDelta func(string)) (string, *ToolCall, error) {
 	f.called++
 	f.lastSystem = system
 	f.lastHistory = history
+	f.lastTools = tools
 	var full string
 	for _, d := range f.chatDeltas {
 		full += d
 		onDelta(d)
 	}
 	if f.err != nil {
-		return "", f.err
+		return "", nil, f.err
 	}
-	return full, nil
+	return full, f.toolCall, nil
 }
 
 // fakeCtx devuelve un JSON fijo.

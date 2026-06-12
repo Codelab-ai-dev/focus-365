@@ -54,12 +54,37 @@ type chatMessage struct {
 	Content string `json:"content"`
 }
 
+// Tool es la definición de una function (estilo OpenAI) que se ofrece al modelo.
+type Tool struct {
+	Name        string
+	Description string
+	Parameters  json.RawMessage // JSON Schema de los argumentos
+}
+
+// ToolCall es la llamada a función que el modelo decidió hacer.
+type ToolCall struct {
+	Name      string
+	Arguments string // JSON crudo, lo valida el servicio
+}
+
+type openaiToolFunction struct {
+	Name        string          `json:"name"`
+	Description string          `json:"description"`
+	Parameters  json.RawMessage `json:"parameters"`
+}
+
+type openaiTool struct {
+	Type     string             `json:"type"`
+	Function openaiToolFunction `json:"function"`
+}
+
 type chatRequest struct {
 	Model       string        `json:"model"`
 	Messages    []chatMessage `json:"messages"`
 	Temperature float64       `json:"temperature"`
 	MaxTokens   int           `json:"max_tokens"`
 	Stream      bool          `json:"stream,omitempty"`
+	Tools       []openaiTool  `json:"tools,omitempty"`
 }
 
 type chatResponse struct {
@@ -141,52 +166,67 @@ func (c *GroqClient) send(ctx context.Context, msgs []chatMessage, maxTokens int
 type chatStreamChunk struct {
 	Choices []struct {
 		Delta struct {
-			Content string `json:"content"`
+			Content   string `json:"content"`
+			ToolCalls []struct {
+				Function struct {
+					Name      string `json:"name"`
+					Arguments string `json:"arguments"`
+				} `json:"function"`
+			} `json:"tool_calls"`
 		} `json:"delta"`
 	} `json:"choices"`
 }
 
-// ChatStream envía el chat con "stream": true y re-emite cada delta vía
-// onDelta. Devuelve el contenido completo acumulado. Si el stream se corta
-// antes del data: [DONE], devuelve error (el caller no debe persistir).
-func (c *GroqClient) ChatStream(ctx context.Context, system string, history []ChatMsg, onDelta func(string)) (string, error) {
+// ChatStream envía el chat con "stream": true (y tools si hay) y re-emite cada
+// delta de texto vía onDelta. Devuelve el texto acumulado y, si el modelo
+// decidió llamar una función, el ToolCall reensamblado (name llega una vez,
+// arguments llega fragmentado). Corte antes de [DONE] → error.
+func (c *GroqClient) ChatStream(ctx context.Context, system string, history []ChatMsg, tools []Tool, onDelta func(string)) (string, *ToolCall, error) {
 	msgs := make([]chatMessage, 0, len(history)+1)
 	msgs = append(msgs, chatMessage{Role: "system", Content: system})
 	for _, m := range history {
 		msgs = append(msgs, chatMessage{Role: m.Role, Content: m.Content})
 	}
 
-	reqBody, err := json.Marshal(chatRequest{
+	req := chatRequest{
 		Model:       c.model,
 		Messages:    msgs,
 		Temperature: 0.7,
 		MaxTokens:   400,
 		Stream:      true,
-	})
+	}
+	for _, t := range tools {
+		req.Tools = append(req.Tools, openaiTool{Type: "function", Function: openaiToolFunction{
+			Name: t.Name, Description: t.Description, Parameters: t.Parameters,
+		}})
+	}
+	reqBody, err := json.Marshal(req)
 	if err != nil {
-		return "", err
+		return "", nil, err
 	}
 
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost,
+	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost,
 		c.baseURL+"/chat/completions", bytes.NewReader(reqBody))
 	if err != nil {
-		return "", err
+		return "", nil, err
 	}
-	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("Authorization", "Bearer "+c.apiKey)
+	httpReq.Header.Set("Content-Type", "application/json")
+	httpReq.Header.Set("Authorization", "Bearer "+c.apiKey)
 
-	res, err := c.streamHTTP.Do(req)
+	res, err := c.streamHTTP.Do(httpReq)
 	if err != nil {
-		return "", err
+		return "", nil, err
 	}
 	defer res.Body.Close()
 
 	if res.StatusCode < 200 || res.StatusCode >= 300 {
 		body, _ := io.ReadAll(res.Body)
-		return "", fmt.Errorf("groq status %d: %s", res.StatusCode, string(body))
+		return "", nil, fmt.Errorf("groq status %d: %s", res.StatusCode, string(body))
 	}
 
 	var full strings.Builder
+	var tcName string
+	var tcArgs strings.Builder
 	sawDone := false
 	scanner := bufio.NewScanner(res.Body)
 	scanner.Buffer(make([]byte, 0, 64*1024), 1024*1024)
@@ -202,26 +242,36 @@ func (c *GroqClient) ChatStream(ctx context.Context, system string, history []Ch
 		}
 		var chunk chatStreamChunk
 		if err := json.Unmarshal([]byte(payload), &chunk); err != nil {
-			return "", fmt.Errorf("groq chunk inválido: %w", err)
+			return "", nil, fmt.Errorf("groq chunk inválido: %w", err)
 		}
 		if len(chunk.Choices) == 0 {
 			continue
 		}
-		if delta := chunk.Choices[0].Delta.Content; delta != "" {
-			full.WriteString(delta)
-			onDelta(delta)
+		delta := chunk.Choices[0].Delta
+		if delta.Content != "" {
+			full.WriteString(delta.Content)
+			onDelta(delta.Content)
+		}
+		for _, tc := range delta.ToolCalls {
+			if tc.Function.Name != "" {
+				tcName = tc.Function.Name
+			}
+			tcArgs.WriteString(tc.Function.Arguments)
 		}
 	}
 	if err := scanner.Err(); err != nil {
-		return "", err
+		return "", nil, err
 	}
 	if !sawDone {
-		return "", fmt.Errorf("groq stream cortado antes de [DONE]")
+		return "", nil, fmt.Errorf("groq stream cortado antes de [DONE]")
+	}
+	if tcName != "" {
+		return full.String(), &ToolCall{Name: tcName, Arguments: tcArgs.String()}, nil
 	}
 	// Una respuesta vacía con [DONE] se trata como fallo a propósito: persistir
 	// un mensaje de asistente vacío no le sirve de nada al usuario.
 	if full.Len() == 0 {
-		return "", fmt.Errorf("groq stream sin contenido")
+		return "", nil, fmt.Errorf("groq stream sin contenido")
 	}
-	return full.String(), nil
+	return full.String(), nil, nil
 }

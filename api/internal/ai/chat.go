@@ -24,7 +24,7 @@ type chatCompleter interface {
 
 // chatStreamer abstrae la llamada de chat en streaming (testeable con fake).
 type chatStreamer interface {
-	ChatStream(ctx context.Context, system string, history []ChatMsg, onDelta func(string)) (string, error)
+	ChatStream(ctx context.Context, system string, history []ChatMsg, tools []Tool, onDelta func(string)) (string, *ToolCall, error)
 }
 
 // messageStore lee el historial y persiste el par usuario+asistente del chat.
@@ -118,7 +118,7 @@ func (s *ChatService) SendStream(ctx context.Context, userID uuid.UUID, text str
 	}
 	history := buildHistory(rows, text)
 
-	reply, err := s.streamer.ChatStream(ctx, buildChatSystemPrompt(contextJSON), history, onDelta)
+	reply, _, err := s.streamer.ChatStream(ctx, buildChatSystemPrompt(contextJSON), history, nil, onDelta)
 	if err != nil {
 		return nil, ErrUnavailable
 	}

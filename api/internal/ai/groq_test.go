@@ -2,6 +2,7 @@ package ai
 
 import (
 	"context"
+	"encoding/json"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -133,14 +134,17 @@ func TestGroqChatStreamOK(t *testing.T) {
 
 	c := newGroqClient(srv.URL, "test-key", "llama-3.3-70b-versatile")
 	var deltas []string
-	got, err := c.ChatStream(context.Background(), "sys", []ChatMsg{
+	got, tc, err := c.ChatStream(context.Background(), "sys", []ChatMsg{
 		{Role: "user", Content: "¿cómo voy?"},
-	}, func(d string) { deltas = append(deltas, d) })
+	}, nil, func(d string) { deltas = append(deltas, d) })
 	if err != nil {
 		t.Fatalf("ChatStream: %v", err)
 	}
 	if got != "Vas bien." {
 		t.Errorf("content = %q, want %q", got, "Vas bien.")
+	}
+	if tc != nil {
+		t.Errorf("tc = %+v, want nil en turno de texto puro", tc)
 	}
 	if len(deltas) != 2 || deltas[0] != "Vas " || deltas[1] != "bien." {
 		t.Errorf("deltas = %v", deltas)
@@ -163,8 +167,8 @@ func TestGroqChatStreamCutMidwayFails(t *testing.T) {
 
 	c := newGroqClient(srv.URL, "k", "m")
 	var deltas []string
-	_, err := c.ChatStream(context.Background(), "s", []ChatMsg{{Role: "user", Content: "x"}},
-		func(d string) { deltas = append(deltas, d) })
+	_, _, err := c.ChatStream(context.Background(), "s", []ChatMsg{{Role: "user", Content: "x"}},
+		nil, func(d string) { deltas = append(deltas, d) })
 	if err == nil {
 		t.Fatal("esperaba error al cortarse el stream sin [DONE]")
 	}
@@ -178,8 +182,79 @@ func TestGroqChatStreamHTTPError(t *testing.T) {
 	defer srv.Close()
 
 	c := newGroqClient(srv.URL, "k", "m")
-	if _, err := c.ChatStream(context.Background(), "s", []ChatMsg{{Role: "user", Content: "x"}},
-		func(string) {}); err == nil {
+	if _, _, err := c.ChatStream(context.Background(), "s", []ChatMsg{{Role: "user", Content: "x"}},
+		nil, func(string) {}); err == nil {
 		t.Fatal("esperaba error en HTTP 500")
+	}
+}
+
+func TestGroqChatStreamToolCall(t *testing.T) {
+	var gotBody []byte
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotBody, _ = io.ReadAll(r.Body)
+		w.Header().Set("Content-Type", "text/event-stream")
+		// El name llega en el primer fragmento; arguments llega partido.
+		sseChunk(w, `{"choices":[{"delta":{"tool_calls":[{"function":{"name":"registrar_checkin","arguments":""}}]}}]}`)
+		sseChunk(w, `{"choices":[{"delta":{"tool_calls":[{"function":{"arguments":"{\"mood\":8,"}}]}}]}`)
+		sseChunk(w, `{"choices":[{"delta":{"tool_calls":[{"function":{"arguments":"\"energy\":6}"}}]}}]}`)
+		sseChunk(w, `[DONE]`)
+	}))
+	defer srv.Close()
+
+	c := newGroqClient(srv.URL, "k", "m")
+	tools := []Tool{{Name: "registrar_checkin", Description: "d", Parameters: json.RawMessage(`{"type":"object"}`)}}
+	text, tc, err := c.ChatStream(context.Background(), "sys", []ChatMsg{{Role: "user", Content: "registra"}}, tools, func(string) {})
+	if err != nil {
+		t.Fatalf("ChatStream: %v", err)
+	}
+	if text != "" {
+		t.Errorf("text = %q, want vacío en turno de tool call", text)
+	}
+	if tc == nil || tc.Name != "registrar_checkin" || tc.Arguments != `{"mood":8,"energy":6}` {
+		t.Errorf("toolCall = %+v", tc)
+	}
+	body := string(gotBody)
+	for _, want := range []string{`"tools":[{"type":"function"`, `"name":"registrar_checkin"`} {
+		if !strings.Contains(body, want) {
+			t.Errorf("body no contiene %q: %s", want, body)
+		}
+	}
+}
+
+func TestGroqChatStreamTextWithToolsReturnsNilToolCall(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		sseChunk(w, `{"choices":[{"delta":{"content":"Hola."}}]}`)
+		sseChunk(w, `[DONE]`)
+	}))
+	defer srv.Close()
+
+	c := newGroqClient(srv.URL, "k", "m")
+	text, tc, err := c.ChatStream(context.Background(), "s", []ChatMsg{{Role: "user", Content: "hola"}},
+		[]Tool{{Name: "x", Description: "d", Parameters: json.RawMessage(`{}`)}}, func(string) {})
+	if err != nil {
+		t.Fatalf("ChatStream: %v", err)
+	}
+	if text != "Hola." || tc != nil {
+		t.Errorf("text = %q, tc = %+v", text, tc)
+	}
+}
+
+func TestGroqChatStreamNoToolsOmitsField(t *testing.T) {
+	var gotBody []byte
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotBody, _ = io.ReadAll(r.Body)
+		w.Header().Set("Content-Type", "text/event-stream")
+		sseChunk(w, `{"choices":[{"delta":{"content":"ok"}}]}`)
+		sseChunk(w, `[DONE]`)
+	}))
+	defer srv.Close()
+
+	c := newGroqClient(srv.URL, "k", "m")
+	if _, _, err := c.ChatStream(context.Background(), "s", []ChatMsg{{Role: "user", Content: "x"}}, nil, func(string) {}); err != nil {
+		t.Fatalf("ChatStream: %v", err)
+	}
+	if strings.Contains(string(gotBody), `"tools"`) {
+		t.Errorf("sin tools el body no debe llevar el campo: %s", gotBody)
 	}
 }

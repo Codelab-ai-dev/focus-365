@@ -88,7 +88,7 @@ Una sola acción por turno (instrucción del prompt + se toma el primer tool cal
 | Tool | Parámetros (JSON Schema) | Mapea a |
 |------|--------------------------|---------|
 | `registrar_checkin` | `mood`, `energy`, `discipline` (int 1–10, required), `note` (string, opcional) | `checkin.Upsert` con `Date: today` |
-| `registrar_movimiento` | `type` (`ingreso`\|`gasto`), `amount_centavos` (int > 0), `category` (string), `remark` (opcional) | `finance.Create` con `OccurredOn: today` |
+| `registrar_movimiento` | `type` (`income`\|`expense`, los valores del dominio existente), `amount_centavos` (int > 0), `category` (string), `remark` (opcional) | `finance.Create` con `OccurredOn: today` |
 | `marcar_habito` | `habit_id` (string UUID, de la lista del contexto) | `habits.SetCheck(done=true, day=today)` |
 | `actualizar_meta` | `goal_id` (string UUID, del contexto), `progress` (int 0–100) | `goals.Patch{Progress}` |
 

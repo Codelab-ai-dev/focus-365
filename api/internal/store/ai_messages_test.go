@@ -2,10 +2,12 @@ package store_test
 
 import (
 	"context"
+	"errors"
 	"testing"
 
 	"github.com/focus365/api/internal/store"
 	"github.com/focus365/api/internal/testutil"
+	"github.com/jackc/pgx/v5"
 )
 
 func TestCreateAndListMessages(t *testing.T) {
@@ -62,3 +64,60 @@ func TestCreateAndListMessages(t *testing.T) {
 		t.Errorf("orden incorrecto: rows[1] antes que rows[0]")
 	}
 }
+
+func TestAiMessageActionRoundTrip(t *testing.T) {
+	pool := testutil.NewDB(t)
+	q := store.New(pool)
+	ctx := context.Background()
+	u, err := q.CreateUser(ctx, store.CreateUserParams{
+		Email: "action-rt@b.com", PasswordHash: "h", Name: "Ada",
+	})
+	if err != nil {
+		t.Fatalf("CreateUser: %v", err)
+	}
+
+	kind := "checkin"
+	status := "proposed"
+	m, err := q.CreateMessageWithAction(ctx, store.CreateMessageWithActionParams{
+		UserID: u.ID, Role: "assistant", Content: "Propongo registrar tu check-in.",
+		ActionKind: &kind, ActionPayload: []byte(`{"mood":8,"energy":6,"discipline":9}`),
+		ActionStatus: &status,
+	})
+	if err != nil {
+		t.Fatalf("CreateMessageWithAction: %v", err)
+	}
+	if m.ActionKind == nil || *m.ActionKind != "checkin" || m.ActionStatus == nil || *m.ActionStatus != "proposed" {
+		t.Errorf("acción mal persistida: %+v", m)
+	}
+
+	got, err := q.GetMessageForAction(ctx, store.GetMessageForActionParams{ID: m.ID, UserID: u.ID})
+	if err != nil {
+		t.Fatalf("GetMessageForAction: %v", err)
+	}
+	if string(got.ActionPayload) != `{"mood":8,"energy":6,"discipline":9}` &&
+		string(got.ActionPayload) != `{"mood": 8, "energy": 6, "discipline": 9}` {
+		t.Errorf("payload = %s", got.ActionPayload)
+	}
+
+	// Transición válida: proposed → done.
+	upd, err := q.SetActionStatus(ctx, store.SetActionStatusParams{ID: m.ID, UserID: u.ID, ActionStatus: ptr("done")})
+	if err != nil {
+		t.Fatalf("SetActionStatus: %v", err)
+	}
+	if upd.ActionStatus == nil || *upd.ActionStatus != "done" {
+		t.Errorf("status = %v", upd.ActionStatus)
+	}
+
+	// Segunda transición: ya no está proposed → ErrNoRows (conflicto).
+	if _, err := q.SetActionStatus(ctx, store.SetActionStatusParams{ID: m.ID, UserID: u.ID, ActionStatus: ptr("cancelled")}); !errors.Is(err, pgx.ErrNoRows) {
+		t.Errorf("doble transición err = %v, want pgx.ErrNoRows", err)
+	}
+
+	// Otro usuario no puede tocar la acción.
+	otro, _ := q.CreateUser(ctx, store.CreateUserParams{Email: "action-otro@b.com", PasswordHash: "h", Name: "Eve"})
+	if _, err := q.GetMessageForAction(ctx, store.GetMessageForActionParams{ID: m.ID, UserID: otro.ID}); !errors.Is(err, pgx.ErrNoRows) {
+		t.Errorf("scoping err = %v, want pgx.ErrNoRows", err)
+	}
+}
+
+func ptr(s string) *string { return &s }

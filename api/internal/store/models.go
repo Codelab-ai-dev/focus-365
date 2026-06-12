@@ -21,11 +21,14 @@ type AiInsight struct {
 }
 
 type AiMessage struct {
-	ID        uuid.UUID `json:"id"`
-	UserID    uuid.UUID `json:"user_id"`
-	Role      string    `json:"role"`
-	Content   string    `json:"content"`
-	CreatedAt time.Time `json:"created_at"`
+	ID            uuid.UUID `json:"id"`
+	UserID        uuid.UUID `json:"user_id"`
+	Role          string    `json:"role"`
+	Content       string    `json:"content"`
+	CreatedAt     time.Time `json:"created_at"`
+	ActionKind    *string   `json:"action_kind"`
+	ActionPayload []byte    `json:"action_payload"`
+	ActionStatus  *string   `json:"action_status"`
 }
 
 type CheckIn struct {

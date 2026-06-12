@@ -53,6 +53,16 @@ function renderPage() {
   );
 }
 
+function sseBody(chunks: string[]) {
+  const encoder = new TextEncoder();
+  return new ReadableStream<Uint8Array>({
+    start(controller) {
+      for (const c of chunks) controller.enqueue(encoder.encode(c));
+      controller.close();
+    },
+  });
+}
+
 describe("AsistentePage", () => {
   afterEach(() => vi.restoreAllMocks());
 
@@ -78,15 +88,17 @@ describe("AsistentePage", () => {
     expect(screen.getByText("Vas verde.")).toBeInTheDocument();
   });
 
-  it("al enviar dispara un POST con el mensaje", async () => {
-    const fetchMock = vi.fn((_url: string, opts?: RequestInit) => {
-      if (opts?.method === "POST") {
+  it("al enviar streamea la respuesta y muestra la burbuja creciendo", async () => {
+    const fetchMock = vi.fn((url: string, opts?: RequestInit) => {
+      if (url === "/api/v1/ai/chat/stream" && opts?.method === "POST") {
         return Promise.resolve(
           new Response(
-            JSON.stringify({
-              reply: { role: "assistant", content: "Respuesta.", created_at: "2026-06-11T10:00:02Z" },
-            }),
-            { status: 200 }
+            sseBody([
+              'event: delta\ndata: {"text":"Vas "}\n\n',
+              'event: delta\ndata: {"text":"verde."}\n\n',
+              'event: done\ndata: {"reply":{"role":"assistant","content":"Vas verde.","created_at":"2026-06-11T10:00:02Z"}}\n\n',
+            ]),
+            { status: 200, headers: { "Content-Type": "text/event-stream" } }
           )
         );
       }
@@ -96,15 +108,18 @@ describe("AsistentePage", () => {
 
     renderPage();
     const input = await screen.findByLabelText("Mensaje");
-    await userEvent.type(input, "hola");
+    await userEvent.type(input, "¿cómo voy?");
     await userEvent.click(screen.getByRole("button", { name: "Enviar" }));
 
+    // El POST fue al endpoint de streaming.
     await waitFor(() => {
       const posted = fetchMock.mock.calls.some(
-        ([url, opts]) => url === "/api/v1/ai/chat" && opts?.method === "POST"
+        ([url, opts]) => url === "/api/v1/ai/chat/stream" && (opts as RequestInit)?.method === "POST"
       );
       expect(posted).toBe(true);
     });
+    // La respuesta completa queda visible (burbuja streameada).
+    expect(await screen.findByText("Vas verde.")).toBeInTheDocument();
   });
 
   it("muestra error inline sin romper la página cuando el POST falla", async () => {
@@ -125,6 +140,35 @@ describe("AsistentePage", () => {
 
     expect(await screen.findByText(/no disponible/i)).toBeInTheDocument();
     // El texto tecleado no se pierde (permite reintentar).
+    expect(input.value).toBe("hola");
+  });
+
+  it("descarta el parcial y muestra error si el stream se corta", async () => {
+    const fetchMock = vi.fn((_url: string, opts?: RequestInit) => {
+      if (opts?.method === "POST") {
+        return Promise.resolve(
+          new Response(
+            sseBody([
+              'event: delta\ndata: {"text":"Vas "}\n\n',
+              'event: error\ndata: {"error":"asistente no disponible por ahora"}\n\n',
+            ]),
+            { status: 200, headers: { "Content-Type": "text/event-stream" } }
+          )
+        );
+      }
+      return Promise.resolve(new Response(JSON.stringify({ messages: [] }), { status: 200 }));
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    renderPage();
+    const input = (await screen.findByLabelText("Mensaje")) as HTMLInputElement;
+    await userEvent.type(input, "hola");
+    await userEvent.click(screen.getByRole("button", { name: "Enviar" }));
+
+    expect(await screen.findByText(/no disponible/i)).toBeInTheDocument();
+    // El parcial "Vas " no queda como burbuja fantasma.
+    expect(screen.queryByText(/^Vas /)).toBeNull();
+    // El input conserva el texto para reintentar.
     expect(input.value).toBe("hola");
   });
 });

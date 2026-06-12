@@ -7,13 +7,21 @@ const STORAGE_KEY = "focus365-theme";
 const ThemeContext = createContext<{ theme: Theme; toggle: () => void } | null>(null);
 
 export function ThemeProvider({ children }: { children: ReactNode }) {
-  const [theme, setTheme] = useState<Theme>(() =>
-    localStorage.getItem(STORAGE_KEY) === "dark" ? "dark" : "light"
-  );
+  const [theme, setTheme] = useState<Theme>(() => {
+    try {
+      return localStorage.getItem(STORAGE_KEY) === "dark" ? "dark" : "light";
+    } catch {
+      return "light";
+    }
+  });
 
   useEffect(() => {
     document.documentElement.setAttribute("data-theme", theme);
-    localStorage.setItem(STORAGE_KEY, theme);
+    try {
+      localStorage.setItem(STORAGE_KEY, theme);
+    } catch {
+      // ignore; the attribute is already set above
+    }
   }, [theme]);
 
   const toggle = () => setTheme((t) => (t === "light" ? "dark" : "light"));

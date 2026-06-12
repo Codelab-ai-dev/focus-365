@@ -74,8 +74,8 @@ describe("AsistentePage", () => {
           new Response(
             JSON.stringify({
               messages: [
-                { role: "user", content: "¿cómo voy?", created_at: "2026-06-11T10:00:00Z" },
-                { role: "assistant", content: "Vas verde.", created_at: "2026-06-11T10:00:01Z" },
+                { id: "m1", role: "user", content: "¿cómo voy?", created_at: "2026-06-11T10:00:00Z" },
+                { id: "m2", role: "assistant", content: "Vas verde.", created_at: "2026-06-11T10:00:01Z" },
               ],
             }),
             { status: 200 }

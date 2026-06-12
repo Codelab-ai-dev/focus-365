@@ -39,7 +39,7 @@ function AsistentePage() {
       // persistida antes de quitar las burbujas — evita el parpadeo.
       qc.setQueryData<Message[]>(["ai-messages"], (prev) => [
         ...(prev ?? []),
-        { role: "user", content: message, created_at: reply.created_at },
+        { id: "", role: "user", content: message, created_at: reply.created_at },
         reply,
       ]);
       setStreaming(null);

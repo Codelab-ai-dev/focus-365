@@ -3,6 +3,10 @@ import { useEffect, useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useAuth } from "@/lib/auth";
 import { getMessages, sendMessageStream, confirmAction, cancelAction, type Message } from "@/lib/ai";
+import { Button } from "@/ui/Button";
+import { Input } from "@/ui/Input";
+import { Chip } from "@/ui/Chip";
+import { PageTransition } from "@/ui/PageTransition";
 
 export const Route = createFileRoute("/asistente")({ component: AsistentePage });
 
@@ -40,29 +44,34 @@ function ActionCard({
 }) {
   const action = message.action!;
   return (
-    <div className="mt-2 rounded-lg border border-amber-brand/40 bg-ink-800 p-3 text-sm">
-      <p className="font-bold">{ACTION_TITLES[action.kind] ?? "Acción"}</p>
-      <p className="text-sand-400">{actionDetails(action)}</p>
+    <div className="mt-2 rounded-lg border-2 border-ink bg-bg p-3 text-sm shadow-brutal-sm">
+      <p className="font-display font-bold">{ACTION_TITLES[action.kind] ?? "Acción"}</p>
+      <p className="text-muted">{actionDetails(action)}</p>
       {action.status === "proposed" && (
         <div className="mt-2 flex gap-2">
-          <button
+          <Button
             onClick={() => onResolve(message.id, "confirm")}
             disabled={pending}
-            className="rounded-lg bg-amber-brand px-3 py-1 text-xs font-bold text-ink-950 disabled:opacity-60"
+            className="px-3 py-1 text-xs"
           >
             Confirmar
-          </button>
-          <button
+          </Button>
+          <Button
+            variant="ghost"
             onClick={() => onResolve(message.id, "cancel")}
             disabled={pending}
-            className="rounded-lg border border-ink-700 px-3 py-1 text-xs disabled:opacity-60"
+            className="px-3 py-1 text-xs"
           >
             Cancelar
-          </button>
+          </Button>
         </div>
       )}
-      {action.status === "done" && <p className="mt-2 text-xs font-bold text-amber-brand">✓ Hecha</p>}
-      {action.status === "cancelled" && <p className="mt-2 text-xs text-sand-400">Cancelada</p>}
+      {action.status === "done" && (
+        <div className="mt-2">
+          <Chip variant="money" size="sm">✓ Hecha</Chip>
+        </div>
+      )}
+      {action.status === "cancelled" && <p className="mt-2 text-xs text-muted">Cancelada</p>}
     </div>
   );
 }
@@ -130,82 +139,87 @@ function AsistentePage() {
   const messages = historyQuery.data ?? [];
 
   return (
-    <div className="mx-auto flex max-w-xl flex-col gap-4 p-6">
-      <header className="flex items-center justify-between">
-        <h1 className="text-xl font-extrabold">Asistente</h1>
-        <Link to="/" className="text-sm text-sand-400">Volver</Link>
-      </header>
+    <PageTransition>
+      <div className="mx-auto flex max-w-xl flex-col gap-4 p-6">
+        <header className="flex items-center justify-between">
+          <h1 className="font-display text-xl font-bold tracking-tight">Asistente</h1>
+          <Link to="/" className="font-bold text-ink underline decoration-accent decoration-2 underline-offset-2">Volver</Link>
+        </header>
 
-      <section className="flex flex-col gap-2">
-        {messages.length === 0 && !streaming ? (
-          <p className="text-sm text-sand-400">
-            Pregúntame sobre tu día, tus finanzas o tus hábitos.
-          </p>
-        ) : (
-          messages.map((m: Message, i: number) => (
-            <div
-              key={i}
-              className={
-                m.role === "user"
-                  ? "self-end rounded-lg bg-amber-brand/20 px-3 py-2 text-sm text-sand-100"
-                  : "self-start rounded-lg border border-ink-700 bg-ink-900 px-3 py-2 text-sm text-sand-100"
-              }
-            >
-              {m.content}
-              {m.role === "assistant" && m.action && (
-                <ActionCard
-                  message={m}
-                  pending={actionMutation.isPending && actionMutation.variables?.id === m.id}
-                  onResolve={(id, verb) => actionMutation.mutate({ id, verb })}
-                />
+        <section className="flex flex-col gap-2">
+          {messages.length === 0 && !streaming ? (
+            <p className="text-sm text-muted">
+              Pregúntame sobre tu día, tus finanzas o tus hábitos.
+            </p>
+          ) : (
+            messages.map((m: Message, i: number) => (
+              <div
+                key={i}
+                className={
+                  m.role === "user"
+                    ? "self-end rounded-lg border-2 border-ink bg-accent/30 px-3 py-2 text-sm shadow-brutal-sm"
+                    : "self-start rounded-lg border-2 border-ink bg-surface px-3 py-2 text-sm shadow-brutal-sm"
+                }
+              >
+                {m.content}
+                {m.role === "assistant" && m.action && (
+                  <ActionCard
+                    message={m}
+                    pending={actionMutation.isPending && actionMutation.variables?.id === m.id}
+                    onResolve={(id, verb) => actionMutation.mutate({ id, verb })}
+                  />
+                )}
+              </div>
+            ))
+          )}
+          {streaming && (
+            <>
+              <div className="self-end rounded-lg border-2 border-ink bg-accent/30 px-3 py-2 text-sm shadow-brutal-sm">
+                {streaming.question}
+              </div>
+              {streaming.partial === "" ? (
+                <div className="self-start rounded-lg border-2 border-ink bg-surface px-3 py-2 text-sm shadow-brutal-sm text-muted">
+                  Pensando…
+                </div>
+              ) : (
+                <div className="self-start rounded-lg border-2 border-ink bg-surface px-3 py-2 text-sm shadow-brutal-sm">
+                  {streaming.partial}
+                </div>
               )}
-            </div>
-          ))
-        )}
-        {streaming && (
-          <>
-            <div className="self-end rounded-lg bg-amber-brand/20 px-3 py-2 text-sm text-sand-100">
-              {streaming.question}
-            </div>
-            {streaming.partial === "" ? (
-              <div className="self-start rounded-lg border border-ink-700 bg-ink-900 px-3 py-2 text-sm text-sand-400">
-                Pensando…
-              </div>
-            ) : (
-              <div className="self-start rounded-lg border border-ink-700 bg-ink-900 px-3 py-2 text-sm text-sand-100">
-                {streaming.partial}
-              </div>
-            )}
-          </>
-        )}
-      </section>
+            </>
+          )}
+        </section>
 
-      {error && <p className="text-sm text-streak">{error}</p>}
+        {error && (
+          <p className="rounded-md border-2 border-ink bg-danger-bg px-3 py-2 text-sm font-bold text-danger-fg shadow-brutal-sm">
+            {error}
+          </p>
+        )}
 
-      <form
-        onSubmit={(e) => {
-          e.preventDefault();
-          const t = text.trim();
-          if (t) mutation.mutate(t);
-        }}
-        className="flex gap-2"
-      >
-        <input
-          type="text"
-          aria-label="Mensaje"
-          value={text}
-          onChange={(e) => setText(e.target.value)}
-          placeholder="Escribe tu pregunta…"
-          className="flex-1 rounded-lg border border-ink-700 bg-ink-800 px-3 py-2 text-sm outline-none focus:border-amber-brand"
-        />
-        <button
-          type="submit"
-          disabled={mutation.isPending || text.trim() === ""}
-          className="rounded-lg bg-amber-brand px-4 py-2 text-sm font-bold text-ink-950 disabled:opacity-60"
+        <form
+          onSubmit={(e) => {
+            e.preventDefault();
+            const t = text.trim();
+            if (t) mutation.mutate(t);
+          }}
+          className="flex gap-2"
         >
-          Enviar
-        </button>
-      </form>
-    </div>
+          <Input
+            type="text"
+            aria-label="Mensaje"
+            value={text}
+            onChange={(e) => setText(e.target.value)}
+            placeholder="Escribe tu pregunta…"
+            className="flex-1"
+          />
+          <Button
+            type="submit"
+            disabled={mutation.isPending || text.trim() === ""}
+          >
+            Enviar
+          </Button>
+        </form>
+      </div>
+    </PageTransition>
   );
 }

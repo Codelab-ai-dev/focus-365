@@ -32,17 +32,19 @@ type authResp struct {
 	User        userView `json:"user"`
 }
 
-func Routes(svc *Service) http.Handler {
+// Routes monta los endpoints de auth. secureCookies activa el flag Secure de
+// la cookie de refresh (true en producción, detrás de HTTPS).
+func Routes(svc *Service, secureCookies bool) http.Handler {
 	r := chi.NewRouter()
-	r.Post("/register", handleRegister(svc))
-	r.Post("/login", handleLogin(svc))
-	r.Post("/refresh", handleRefresh(svc))
-	r.Post("/logout", handleLogout())
+	r.Post("/register", handleRegister(svc, secureCookies))
+	r.Post("/login", handleLogin(svc, secureCookies))
+	r.Post("/refresh", handleRefresh(svc, secureCookies))
+	r.Post("/logout", handleLogout(secureCookies))
 	r.With(RequireAuth(svc.Tokens())).Get("/me", handleMe(svc))
 	return r
 }
 
-func handleRegister(svc *Service) http.HandlerFunc {
+func handleRegister(svc *Service, secure bool) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		var req registerReq
 		if !httpx.DecodeAndValidate(w, r, &req) {
@@ -57,11 +59,11 @@ func handleRegister(svc *Service) http.HandlerFunc {
 			httpx.WriteErr(w, http.StatusInternalServerError, "error interno")
 			return
 		}
-		respondWithTokens(w, svc, user, http.StatusCreated)
+		respondWithTokens(w, svc, user, http.StatusCreated, secure)
 	}
 }
 
-func handleLogin(svc *Service) http.HandlerFunc {
+func handleLogin(svc *Service, secure bool) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		var req loginReq
 		if !httpx.DecodeAndValidate(w, r, &req) {
@@ -72,11 +74,11 @@ func handleLogin(svc *Service) http.HandlerFunc {
 			httpx.WriteErr(w, http.StatusUnauthorized, "credenciales inválidas")
 			return
 		}
-		respondWithTokens(w, svc, user, http.StatusOK)
+		respondWithTokens(w, svc, user, http.StatusOK, secure)
 	}
 }
 
-func handleRefresh(svc *Service) http.HandlerFunc {
+func handleRefresh(svc *Service, secure bool) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		cookie, err := r.Cookie("refresh_token")
 		if err != nil {
@@ -93,17 +95,18 @@ func handleRefresh(svc *Service) http.HandlerFunc {
 			httpx.WriteErr(w, http.StatusUnauthorized, "usuario no encontrado")
 			return
 		}
-		respondWithTokens(w, svc, user, http.StatusOK)
+		respondWithTokens(w, svc, user, http.StatusOK, secure)
 	}
 }
 
-func handleLogout() http.HandlerFunc {
+func handleLogout(secure bool) http.HandlerFunc {
 	return func(w http.ResponseWriter, _ *http.Request) {
 		http.SetCookie(w, &http.Cookie{
 			Name:     "refresh_token",
 			Value:    "",
 			Path:     "/api/v1/auth",
 			HttpOnly: true,
+			Secure:   secure,
 			SameSite: http.SameSiteLaxMode,
 			MaxAge:   -1,
 		})
@@ -127,7 +130,7 @@ func handleMe(svc *Service) http.HandlerFunc {
 	}
 }
 
-func respondWithTokens(w http.ResponseWriter, svc *Service, user store.User, status int) {
+func respondWithTokens(w http.ResponseWriter, svc *Service, user store.User, status int, secure bool) {
 	access, refresh, err := svc.IssueTokens(user.ID)
 	if err != nil {
 		httpx.WriteErr(w, http.StatusInternalServerError, "error emitiendo tokens")
@@ -138,6 +141,7 @@ func respondWithTokens(w http.ResponseWriter, svc *Service, user store.User, sta
 		Value:    refresh,
 		Path:     "/api/v1/auth",
 		HttpOnly: true,
+		Secure:   secure,
 		SameSite: http.SameSiteLaxMode,
 		Expires:  time.Now().Add(RefreshTTL()),
 	})

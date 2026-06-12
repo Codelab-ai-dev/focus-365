@@ -15,7 +15,56 @@ import (
 func newHandler(t *testing.T) http.Handler {
 	pool := testutil.NewDB(t)
 	svc := auth.NewService(store.New(pool), auth.NewTokenManager("secret"))
-	return auth.Routes(svc)
+	return auth.Routes(svc, false)
+}
+
+// newSecureHandler monta las rutas como en producción (cookies Secure).
+func newSecureHandler(t *testing.T) http.Handler {
+	pool := testutil.NewDB(t)
+	svc := auth.NewService(store.New(pool), auth.NewTokenManager("secret"))
+	return auth.Routes(svc, true)
+}
+
+func TestCookiesCarrySecureFlagWhenConfigured(t *testing.T) {
+	h := newSecureHandler(t)
+
+	rec := postJSON(t, h, "/register", map[string]string{
+		"email": "secure@focus.com", "password": "p4ssword", "name": "S",
+	})
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("register code = %d", rec.Code)
+	}
+	assertRefreshCookieSecure(t, rec, true)
+
+	rec2 := postJSON(t, h, "/logout", nil)
+	if rec2.Code != http.StatusNoContent {
+		t.Fatalf("logout code = %d", rec2.Code)
+	}
+	assertRefreshCookieSecure(t, rec2, true)
+}
+
+func TestCookiesNotSecureByDefaultInDev(t *testing.T) {
+	h := newHandler(t)
+	rec := postJSON(t, h, "/register", map[string]string{
+		"email": "dev@focus.com", "password": "p4ssword", "name": "D",
+	})
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("register code = %d", rec.Code)
+	}
+	assertRefreshCookieSecure(t, rec, false)
+}
+
+func assertRefreshCookieSecure(t *testing.T, rec *httptest.ResponseRecorder, want bool) {
+	t.Helper()
+	for _, c := range rec.Result().Cookies() {
+		if c.Name == "refresh_token" {
+			if c.Secure != want {
+				t.Errorf("cookie Secure = %v, want %v", c.Secure, want)
+			}
+			return
+		}
+	}
+	t.Fatal("falta la cookie refresh_token")
 }
 
 func postJSON(t *testing.T, h http.Handler, path string, body any) *httptest.ResponseRecorder {

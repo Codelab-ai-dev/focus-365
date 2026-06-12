@@ -1,0 +1,50 @@
+# Compose para producción en Coolify.
+#
+# Diferencias vs el docker-compose.yml de desarrollo:
+# - Sin puertos de host: nada se expone directo. Coolify (Traefik) enruta el
+#   dominio al puerto 80 del servicio `web`, y nginx proxea /api → api:8080
+#   internamente (mismo origen → cookies httpOnly funcionan sin CORS).
+# - La DB no es alcanzable desde fuera del stack.
+# - Variables sin defaults inseguros: POSTGRES_PASSWORD, JWT_SECRET y
+#   GROQ_API_KEY se definen en el panel de Coolify (Environment Variables).
+# - COOKIE_SECURE=true: la cookie de refresh exige HTTPS.
+
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-focus}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?define POSTGRES_PASSWORD en Coolify}
+      POSTGRES_DB: ${POSTGRES_DB:-focus365}
+    volumes:
+      - dbdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-focus}"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+  api:
+    build: ./api
+    environment:
+      DATABASE_URL: postgres://${POSTGRES_USER:-focus}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB:-focus365}?sslmode=disable
+      API_PORT: "8080"
+      JWT_SECRET: ${JWT_SECRET:?define JWT_SECRET en Coolify}
+      CORS_ORIGIN: ${CORS_ORIGIN:-}
+      COOKIE_SECURE: "true"
+      GROQ_API_KEY: ${GROQ_API_KEY:-}
+      GROQ_MODEL: ${GROQ_MODEL:-llama-3.3-70b-versatile}
+    depends_on:
+      db:
+        condition: service_healthy
+    restart: unless-stopped
+
+  web:
+    build: ./web
+    depends_on:
+      - api
+    restart: unless-stopped
+
+volumes:
+  dbdata:

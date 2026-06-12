@@ -19,11 +19,12 @@ import (
 )
 
 type Deps struct {
-	Pool       *pgxpool.Pool
-	JWTSecret  string
-	CORSOrigin string
-	GroqAPIKey string
-	GroqModel  string
+	Pool         *pgxpool.Pool
+	JWTSecret    string
+	CORSOrigin   string
+	GroqAPIKey   string
+	GroqModel    string
+	CookieSecure bool
 }
 
 func New(d Deps) http.Handler {
@@ -45,7 +46,7 @@ func New(d Deps) http.Handler {
 
 	r.Route("/api/v1", func(r chi.Router) {
 		r.Get("/health", health)
-		r.Mount("/auth", auth.Routes(authSvc))
+		r.Mount("/auth", auth.Routes(authSvc, d.CookieSecure))
 		r.Group(func(r chi.Router) {
 			r.Use(auth.RequireAuth(tm))
 			r.Mount("/checkins", checkin.Routes(checkinSvc))

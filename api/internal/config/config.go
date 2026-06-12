@@ -6,12 +6,13 @@ import (
 )
 
 type Config struct {
-	DatabaseURL string
-	JWTSecret   string
-	Port        string
-	CORSOrigin  string
-	GroqAPIKey  string
-	GroqModel   string
+	DatabaseURL  string
+	JWTSecret    string
+	Port         string
+	CORSOrigin   string
+	GroqAPIKey   string
+	GroqModel    string
+	CookieSecure bool
 }
 
 func Load() (Config, error) {
@@ -22,6 +23,9 @@ func Load() (Config, error) {
 		CORSOrigin:  os.Getenv("CORS_ORIGIN"),
 		GroqAPIKey:  os.Getenv("GROQ_API_KEY"),
 		GroqModel:   os.Getenv("GROQ_MODEL"),
+		// COOKIE_SECURE=true en producción (detrás de HTTPS): la cookie de
+		// refresh lleva el flag Secure.
+		CookieSecure: os.Getenv("COOKIE_SECURE") == "true",
 	}
 	if cfg.DatabaseURL == "" {
 		return Config{}, errors.New("DATABASE_URL is required")

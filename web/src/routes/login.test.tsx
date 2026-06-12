@@ -48,10 +48,14 @@ describe("LoginPage", () => {
   });
 
   it("muestra error cuando el login falla", async () => {
+    // Response fresca por llamada: el bootstrap de AuthProvider también
+    // hace fetch y consumiría el body de una instancia compartida.
     vi.stubGlobal(
       "fetch",
-      vi.fn().mockResolvedValue(
-        new Response(JSON.stringify({ error: "credenciales inválidas" }), { status: 401 })
+      vi.fn().mockImplementation(() =>
+        Promise.resolve(
+          new Response(JSON.stringify({ error: "credenciales inválidas" }), { status: 401 })
+        )
       )
     );
     renderLogin();

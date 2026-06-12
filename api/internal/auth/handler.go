@@ -37,6 +37,7 @@ func Routes(svc *Service) http.Handler {
 	r.Post("/register", handleRegister(svc))
 	r.Post("/login", handleLogin(svc))
 	r.Post("/refresh", handleRefresh(svc))
+	r.Post("/logout", handleLogout())
 	r.With(RequireAuth(svc.Tokens())).Get("/me", handleMe(svc))
 	return r
 }
@@ -93,6 +94,20 @@ func handleRefresh(svc *Service) http.HandlerFunc {
 			return
 		}
 		respondWithTokens(w, svc, user, http.StatusOK)
+	}
+}
+
+func handleLogout() http.HandlerFunc {
+	return func(w http.ResponseWriter, _ *http.Request) {
+		http.SetCookie(w, &http.Cookie{
+			Name:     "refresh_token",
+			Value:    "",
+			Path:     "/api/v1/auth",
+			HttpOnly: true,
+			SameSite: http.SameSiteLaxMode,
+			MaxAge:   -1,
+		})
+		w.WriteHeader(http.StatusNoContent)
 	}
 }
 

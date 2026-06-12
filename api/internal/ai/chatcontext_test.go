@@ -10,10 +10,30 @@ import (
 	"github.com/focus365/api/internal/checkin"
 	"github.com/focus365/api/internal/dashboard"
 	"github.com/focus365/api/internal/finance"
+	"github.com/focus365/api/internal/goals"
+	"github.com/focus365/api/internal/habits"
 	"github.com/google/uuid"
 )
 
 // fakeSnap se reutiliza desde service_test.go (mismo paquete).
+
+type fakeHabits struct {
+	list []habits.Habit
+	err  error
+}
+
+func (f fakeHabits) List(ctx context.Context, userID uuid.UUID, archived bool, today time.Time) ([]habits.Habit, error) {
+	return f.list, f.err
+}
+
+type fakeGoals struct {
+	list []goals.Goal
+	err  error
+}
+
+func (f fakeGoals) List(ctx context.Context, userID uuid.UUID, status string, today time.Time) ([]goals.Goal, error) {
+	return f.list, f.err
+}
 
 type fakeCycler struct {
 	cycles []finance.CycleSummary
@@ -47,8 +67,10 @@ func TestChatContextComposesJSON(t *testing.T) {
 		{ID: "c1", Date: "2026-06-10", Mood: 7, Energy: 6, Discipline: 8},
 	}
 	lister := &fakeLister{list: cks}
+	hab := fakeHabits{list: []habits.Habit{{ID: "h1", Name: "Meditar", DoneToday: false}}}
+	gls := fakeGoals{list: []goals.Goal{{ID: "g1", Title: "Ahorrar", Progress: 40, Status: "activa"}}}
 
-	b := newChatContextBuilder(fakeSnap{snap: snap}, fakeCycler{cycles: cyc}, lister)
+	b := newChatContextBuilder(fakeSnap{snap: snap}, fakeCycler{cycles: cyc}, lister, hab, gls)
 	out, err := b.build(context.Background(), uuid.New(), time.Now())
 	if err != nil {
 		t.Fatalf("build: %v", err)
@@ -62,6 +84,8 @@ func TestChatContextComposesJSON(t *testing.T) {
 		Snapshot *dashboard.Snapshot    `json:"snapshot"`
 		Cycles   []finance.CycleSummary `json:"cycles"`
 		Checkins []checkin.CheckIn      `json:"checkins"`
+		Habits   []habits.Habit         `json:"habits"`
+		Goals    []goals.Goal           `json:"goals"`
 	}
 	if err := json.Unmarshal([]byte(out), &payload); err != nil {
 		t.Fatalf("json inválido: %v\n%s", err, out)
@@ -75,6 +99,12 @@ func TestChatContextComposesJSON(t *testing.T) {
 	if len(payload.Checkins) != 1 || payload.Checkins[0].Date != "2026-06-10" {
 		t.Errorf("checkins mal compuesto: %s", out)
 	}
+	if len(payload.Habits) != 1 || payload.Habits[0].ID != "h1" {
+		t.Errorf("habits mal compuesto: %s", out)
+	}
+	if len(payload.Goals) != 1 || payload.Goals[0].ID != "g1" {
+		t.Errorf("goals mal compuesto: %s", out)
+	}
 }
 
 func TestChatContextPropagatesError(t *testing.T) {
@@ -82,6 +112,8 @@ func TestChatContextPropagatesError(t *testing.T) {
 		fakeSnap{err: errors.New("db caída")},
 		fakeCycler{},
 		&fakeLister{},
+		fakeHabits{},
+		fakeGoals{},
 	)
 	if _, err := b.build(context.Background(), uuid.New(), time.Now()); err == nil {
 		t.Fatal("esperaba propagar el error de Snapshot")

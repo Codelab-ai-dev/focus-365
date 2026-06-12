@@ -8,6 +8,7 @@ import {
   createRoute,
   createMemoryHistory,
 } from "@tanstack/react-router";
+import { MotionConfig } from "framer-motion";
 import type { Snapshot } from "@/lib/dashboard";
 import type { Insight } from "@/lib/ai";
 
@@ -83,10 +84,12 @@ function renderPage() {
   });
   const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   render(
-    <QueryClientProvider client={qc}>
-      {/* @ts-ignore router de prueba */}
-      <RouterProvider router={router} />
-    </QueryClientProvider>
+    <MotionConfig reducedMotion="always">
+      <QueryClientProvider client={qc}>
+        {/* @ts-ignore router de prueba */}
+        <RouterProvider router={router} />
+      </QueryClientProvider>
+    </MotionConfig>
   );
 }
 

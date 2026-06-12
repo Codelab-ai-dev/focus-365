@@ -5,6 +5,12 @@ import { useAuth } from "@/lib/auth";
 import { getDashboard, todayString, type Snapshot } from "@/lib/dashboard";
 import { formatMXN } from "@/lib/finances";
 import { getInsight } from "@/lib/ai";
+import { Card } from "@/ui/Card";
+import { Chip } from "@/ui/Chip";
+import { Stat } from "@/ui/Stat";
+import { Button } from "@/ui/Button";
+import { PageTransition } from "@/ui/PageTransition";
+import { Reveal, RevealItem } from "@/ui/Reveal";
 
 export const Route = createFileRoute("/")({ component: DashboardPage });
 
@@ -25,19 +31,18 @@ function DashboardPage() {
   if (!user) return null;
 
   if (query.isLoading) {
-    return <p className="p-6 text-sand-400">Cargando tu día…</p>;
+    return <p className="p-6 text-muted">Cargando tu día…</p>;
   }
 
   if (query.isError || !query.data) {
     return (
       <div className="p-6">
-        <p className="text-streak">No pudimos cargar tu día.</p>
-        <button
-          onClick={() => query.refetch()}
-          className="mt-3 rounded-lg border border-ink-700 px-4 py-2 text-sm font-bold text-sand-400"
-        >
+        <p className="w-fit rounded-md border-2 border-ink bg-danger-bg px-3 py-2 text-sm font-bold text-danger-fg shadow-brutal-sm">
+          No pudimos cargar tu día.
+        </p>
+        <Button variant="ghost" className="mt-3" onClick={() => query.refetch()}>
           Reintentar
-        </button>
+        </Button>
       </div>
     );
   }
@@ -50,25 +55,31 @@ function DashboardPage() {
   });
 
   return (
-    <div className="p-6">
-      <AIBand />
-      <p className="mt-4 text-sm text-sand-400">
-        Hola, <span className="text-amber-brand">{user.name}</span> · {fecha} ·{" "}
-        {s.dimensions_active} dimensiones en marcha
-      </p>
+    <PageTransition>
+      <div className="mx-auto max-w-3xl p-6">
+        <AIBand />
+        <p className="mt-4 text-sm text-muted">
+          Hola, <span className="font-bold text-ink">{user.name}</span> · {fecha} ·{" "}
+          {s.dimensions_active} dimensiones en marcha
+        </p>
 
-      <div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-2">
-        <StreakCard s={s} />
-        <FinanceCard s={s} />
-      </div>
+        <Reveal className="mt-4 grid grid-cols-1 gap-4 sm:grid-cols-2">
+          <RevealItem>
+            <StreakHero s={s} />
+          </RevealItem>
+          <RevealItem>
+            <FinanceCard s={s} />
+          </RevealItem>
+        </Reveal>
 
-      <div className="mt-3 grid grid-cols-2 gap-3 sm:grid-cols-4">
-        <MoodCard s={s} />
-        <CheckinCard s={s} />
-        <TrainingCard s={s} />
-        <GoalsCard s={s} />
+        <Reveal className="mt-4 grid grid-cols-2 gap-4 sm:grid-cols-4">
+          <RevealItem><MoodCard s={s} /></RevealItem>
+          <RevealItem><CheckinCard s={s} /></RevealItem>
+          <RevealItem><TrainingCard s={s} /></RevealItem>
+          <RevealItem><GoalsCard s={s} /></RevealItem>
+        </Reveal>
       </div>
-    </div>
+    </PageTransition>
   );
 }
 
@@ -83,9 +94,6 @@ function AIBand() {
     retry: false,
   });
 
-  const base =
-    "block rounded-lg border border-dashed border-amber-brand bg-amber-brand/10 px-4 py-3 text-sm font-bold text-amber-brand";
-
   let content = "✦ Tu insight del día llega pronto";
   if (insightQ.isLoading) {
     content = "✦ Generando tu insight…";
@@ -93,129 +101,144 @@ function AIBand() {
     content = `✦ ${insightQ.data.content}`;
   }
   return (
-    <Link to="/asistente" className={base}>
-      {content}
+    <Link to="/asistente" className="block">
+      <Card interactive className="flex items-center gap-3 px-4 py-3">
+        <Chip variant="accent">IA</Chip>
+        <span className="text-sm font-bold">{content}</span>
+      </Card>
     </Link>
   );
 }
 
-function Card({
+// Tile envuelve Card interactiva en un Link; bg permite pintar el tile entero
+// con un chip-color (los hijos ponen el texto con su fg correspondiente).
+function Tile({
   to,
   title,
-  big,
+  bg = "",
   children,
 }: {
   to: string;
   title: string;
-  big?: boolean;
+  bg?: string;
   children: React.ReactNode;
 }) {
   return (
-    <Link
-      to={to}
-      className={`flex flex-col gap-1 rounded-lg border border-ink-700 bg-ink-800 p-4 ${
-        big ? "min-h-[88px]" : "min-h-[64px]"
-      }`}
-    >
-      <span className="text-sm font-bold text-sand-100">{title}</span>
-      {children}
+    <Link to={to} className="block h-full">
+      <Card interactive className={`flex h-full min-h-[72px] flex-col gap-1 p-4 ${bg}`}>
+        <span className="text-[10px] font-bold uppercase tracking-[0.12em] opacity-70">
+          {title}
+        </span>
+        {children}
+      </Card>
     </Link>
   );
 }
 
-function StreakCard({ s }: { s: Snapshot }) {
+function StreakHero({ s }: { s: Snapshot }) {
   return (
-    <Card to="/disciplina" title="🔥 Racha" big>
-      {s.streak.total === 0 ? (
-        <span className="text-sm text-sand-400">Sin hábitos aún</span>
-      ) : (
-        <>
-          <span className="text-2xl font-extrabold text-streak">
-            {s.streak.best_current} días
-          </span>
-          <span className="text-xs text-sand-400">
-            {s.streak.done_today}/{s.streak.total} hábitos hoy
-          </span>
-        </>
-      )}
-    </Card>
+    <Link to="/disciplina" className="block h-full">
+      <Card interactive className="flex h-full flex-col justify-between bg-accent p-5 text-[#16130e]">
+        <span className="text-[10px] font-bold uppercase tracking-[0.12em] opacity-70">
+          🔥 Racha
+        </span>
+        {s.streak.total === 0 ? (
+          <span className="text-sm font-medium opacity-80">Sin hábitos aún</span>
+        ) : (
+          <>
+            <div className="flex items-end gap-2">
+              <Stat label="" value={s.streak.best_current} suffix=" días" className="[&>div:first-child]:hidden" />
+              <span className="animate-flicker text-2xl">🔥</span>
+            </div>
+            <span className="text-xs font-bold opacity-80">
+              {s.streak.done_today}/{s.streak.total} hábitos hoy
+            </span>
+          </>
+        )}
+      </Card>
+    </Link>
   );
 }
 
 function FinanceCard({ s }: { s: Snapshot }) {
-  const color =
+  const bg =
     s.finance.status === "verde"
-      ? "text-money"
+      ? "bg-money-bg text-money-fg"
       : s.finance.status === "rojo"
-        ? "text-streak"
-        : "text-sand-400";
+        ? "bg-danger-bg text-danger-fg"
+        : "";
   return (
-    <Card to="/finanzas" title="Superávit del ciclo" big>
-      <span className={`text-2xl font-extrabold ${color}`}>{formatMXN(s.finance.net)}</span>
-      <span className="text-xs text-sand-400">
+    <Tile to="/finanzas" title="Superávit del ciclo" bg={bg}>
+      <Stat
+        label=""
+        value={s.finance.net}
+        format={formatMXN}
+        className="[&>div:first-child]:hidden"
+      />
+      <span className="text-xs font-bold opacity-70">
         {s.finance.cycle} · {s.finance.status}
       </span>
-    </Card>
+    </Tile>
   );
 }
 
 function Bar({ value }: { value: number }) {
   // value 1-10 → ancho proporcional.
   return (
-    <div className="h-2 w-full rounded bg-ink-700">
-      <div className="h-2 rounded bg-amber-brand" style={{ width: `${value * 10}%` }} />
+    <div className="h-2 w-full overflow-hidden rounded-md border-2 border-ink bg-surface">
+      <div className="h-full bg-accent" style={{ width: `${value * 10}%` }} />
     </div>
   );
 }
 
 function MoodCard({ s }: { s: Snapshot }) {
   return (
-    <Card to="/check-in" title="Ánimo / Energía">
+    <Tile to="/check-in" title="Ánimo / Energía" bg="bg-sky-bg text-sky-fg">
       {s.checkin == null ? (
-        <span className="text-xs text-sand-400">Sin check-in hoy</span>
+        <span className="text-xs opacity-80">Sin check-in hoy</span>
       ) : (
         <div className="flex flex-col gap-1">
           <Bar value={s.checkin.mood} />
           <Bar value={s.checkin.energy} />
         </div>
       )}
-    </Card>
+    </Tile>
   );
 }
 
 function CheckinCard({ s }: { s: Snapshot }) {
   return (
-    <Card to="/check-in" title="Check-in de hoy">
+    <Tile to="/check-in" title="Check-in de hoy" bg="bg-sun-bg text-sun-fg">
       {s.checkin?.present ? (
-        <span className="text-xs text-money">
-          Hecho ✓ · disciplina {s.checkin.discipline}
-        </span>
+        <span className="text-xs font-bold">Hecho ✓ · disciplina {s.checkin.discipline}</span>
       ) : (
-        <span className="text-xs text-sand-400">Pendiente</span>
+        <span className="text-xs opacity-80">Pendiente</span>
       )}
-    </Card>
+    </Tile>
   );
 }
 
 function TrainingCard({ s }: { s: Snapshot }) {
   return (
-    <Card to="/entrenamiento" title="Entreno de hoy">
-      <span className="text-xs text-sand-400">
+    <Tile to="/entrenamiento" title="Entreno de hoy">
+      <span className="text-xs font-bold text-muted">
         {s.training.trained_today ? `${s.training.type} ✓` : "Sin entreno hoy"}
       </span>
-    </Card>
+    </Tile>
   );
 }
 
 function GoalsCard({ s }: { s: Snapshot }) {
   return (
-    <Card to="/metas" title="Metas activas">
-      <span className="text-xs text-sand-400">
+    <Tile to="/metas" title="Metas activas">
+      <span className="text-xs font-bold text-muted">
         {s.goals.active} activas · {s.goals.avg_progress}% prom.
       </span>
       {s.goals.overdue > 0 && (
-        <span className="text-xs text-streak">{s.goals.overdue} vencida(s)</span>
+        <Chip variant="danger" className="mt-1 w-fit">
+          {s.goals.overdue} vencida(s)
+        </Chip>
       )}
-    </Card>
+    </Tile>
   );
 }

@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { animate, useReducedMotion } from "framer-motion";
+import { animate, useReducedMotionConfig } from "framer-motion";
 
 // Stat: etiqueta uppercase + número display con contador animado al montar.
 // Con reduced-motion el valor aparece directo (sin cuenta).
@@ -18,7 +18,7 @@ export function Stat({
   format?: (n: number) => string;
   className?: string;
 }) {
-  const reduced = useReducedMotion();
+  const reduced = useReducedMotionConfig();
   const [display, setDisplay] = useState(reduced ? value : 0);
 
   useEffect(() => {

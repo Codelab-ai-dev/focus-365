@@ -17,7 +17,7 @@ import (
 	"github.com/google/uuid"
 )
 
-// Kinds de acción persistidos en ai_messages.action_kind.
+// Kinds de acción persistidos en ai_actions.kind.
 const (
 	actionCheckin       = "checkin"
 	actionMovimiento    = "movimiento"
@@ -438,7 +438,9 @@ func (e *actionExecutor) execute(ctx context.Context, userID uuid.UUID, kind str
 	case actionMeta:
 		var p metaPayload
 		_ = json.Unmarshal(normalized, &p)
-		// Lee el progreso actual de la meta ANTES del patch (best-effort: 0 si no se encuentra).
+		// Lee el progreso actual de la meta ANTES del patch (best-effort: 0 si no se
+		// encuentra). Asume que la meta está "activa" — es la única lista que el
+		// modelo ve y patchea; una meta fuera de ese estado caería al fallback 0.
 		var prevProgress int32
 		if list, err := e.goals.List(ctx, userID, "activa", today); err == nil {
 			for _, g := range list {

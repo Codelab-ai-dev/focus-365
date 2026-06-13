@@ -33,6 +33,7 @@ func Routes(svc *Service, chat *ChatService) http.Handler {
 	r.Post("/chat/stream", handleChatStream(chat))
 	r.Post("/actions/{id}/confirm", handleActionConfirm(chat))
 	r.Post("/actions/{id}/cancel", handleActionCancel(chat))
+	r.Post("/actions/{id}/undo", handleActionUndo(chat))
 	return r
 }
 
@@ -289,6 +290,14 @@ func handleActionCancel(chat *ChatService) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		resolveAction(w, r, func(ctx context.Context, userID, id uuid.UUID) (*ActionView, error) {
 			return chat.CancelAction(ctx, userID, id)
+		})
+	}
+}
+
+func handleActionUndo(chat *ChatService) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		resolveAction(w, r, func(ctx context.Context, userID, id uuid.UUID) (*ActionView, error) {
+			return chat.UndoAction(ctx, userID, id)
 		})
 	}
 }

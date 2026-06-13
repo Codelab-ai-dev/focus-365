@@ -400,6 +400,47 @@ func TestActionCrearHabitoEndToEnd(t *testing.T) {
 	}
 }
 
+func TestActionUndoHappyPath(t *testing.T) {
+	comp := &fakeCompleter{chatToolCalls: checkinToolCall()}
+	e := newEnv(t, true, comp)
+	uid, tok := e.user(t, "undo-ok@b.com")
+	id := proposeViaChat(t, e, tok)
+	if rec, _ := postAction(t, e.h, tok, id, "confirm"); rec.Code != http.StatusOK {
+		t.Fatalf("confirm = %d", rec.Code)
+	}
+	// El check-in existe…
+	if _, err := e.q.GetCheckInByDate(context.Background(), store.GetCheckInByDateParams{UserID: uid, Date: dayTime(t)}); err != nil {
+		t.Fatalf("check-in no escrito: %v", err)
+	}
+	// …deshacer…
+	rec, body := postAction(t, e.h, tok, id, "undo")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("undo = %d, body = %s", rec.Code, rec.Body.String())
+	}
+	action, _ := body["action"].(map[string]any)
+	if action["status"] != "undone" {
+		t.Errorf("status = %v", action["status"])
+	}
+	// …y el check-in del día desapareció (no había previo).
+	if _, err := e.q.GetCheckInByDate(context.Background(), store.GetCheckInByDateParams{UserID: uid, Date: dayTime(t)}); err == nil {
+		t.Error("el check-in debía borrarse al deshacer")
+	}
+	// Doble undo → 409.
+	if rec2, _ := postAction(t, e.h, tok, id, "undo"); rec2.Code != http.StatusConflict {
+		t.Errorf("doble undo = %d, want 409", rec2.Code)
+	}
+}
+
+func TestActionUndoDeProposedEs409(t *testing.T) {
+	comp := &fakeCompleter{chatToolCalls: checkinToolCall()}
+	e := newEnv(t, true, comp)
+	_, tok := e.user(t, "undo-409@b.com")
+	id := proposeViaChat(t, e, tok)
+	if rec, _ := postAction(t, e.h, tok, id, "undo"); rec.Code != http.StatusConflict {
+		t.Errorf("undo de proposed = %d, want 409", rec.Code)
+	}
+}
+
 func TestActionErrors(t *testing.T) {
 	comp := &fakeCompleter{chatToolCalls: checkinToolCall()}
 	e := newEnv(t, true, comp)

@@ -89,3 +89,66 @@ func TestServiceUpsertTodayList(t *testing.T) {
 		t.Errorf("list[0].Date = %q, want 2026-06-10 (orden date DESC)", list[0].Date)
 	}
 }
+
+func TestDeleteCheckIn(t *testing.T) {
+	pool := testutil.NewDB(t)
+	q := store.New(pool)
+	svc := checkin.NewService(q)
+	ctx := context.Background()
+
+	user, err := q.CreateUser(ctx, store.CreateUserParams{Email: "del@b.com", PasswordHash: "h", Name: "Del"})
+	if err != nil {
+		t.Fatalf("CreateUser: %v", err)
+	}
+
+	date := time.Date(2026, 6, 12, 0, 0, 0, 0, time.UTC)
+
+	// 1. Upsert de un check-in del día.
+	if _, err := svc.Upsert(ctx, user.ID, checkin.Input{
+		Date: date, Mood: 8, Energy: 7, Discipline: 9, Note: "test",
+	}); err != nil {
+		t.Fatalf("Upsert: %v", err)
+	}
+
+	// 2. Delete → deleted == true.
+	deleted, err := svc.Delete(ctx, user.ID, date)
+	if err != nil {
+		t.Fatalf("Delete: %v", err)
+	}
+	if !deleted {
+		t.Error("Delete debería devolver true cuando existe el check-in")
+	}
+
+	// 3. Today → (nil, nil).
+	got, err := svc.Today(ctx, user.ID, date)
+	if err != nil {
+		t.Fatalf("Today tras Delete: %v", err)
+	}
+	if got != nil {
+		t.Errorf("Today debería ser nil tras Delete, got %+v", got)
+	}
+
+	// 4. Delete de nuevo → deleted == false (idempotente).
+	deleted2, err := svc.Delete(ctx, user.ID, date)
+	if err != nil {
+		t.Fatalf("Delete idempotente: %v", err)
+	}
+	if deleted2 {
+		t.Error("Delete repetido debería devolver false (ya no existe)")
+	}
+
+	// 5. Delete con OTRO usuario sobre el mismo día → false (scoping).
+	other, err := q.CreateUser(ctx, store.CreateUserParams{Email: "other@b.com", PasswordHash: "h", Name: "Other"})
+	if err != nil {
+		t.Fatalf("CreateUser otro: %v", err)
+	}
+	// Primero crear un check-in para el primer usuario en esa fecha (ya fue borrado), no hay nada.
+	// El otro usuario no tiene check-in: Delete debe devolver false.
+	deletedOther, err := svc.Delete(ctx, other.ID, date)
+	if err != nil {
+		t.Fatalf("Delete otro usuario: %v", err)
+	}
+	if deletedOther {
+		t.Error("Delete de otro usuario sin check-in debería devolver false")
+	}
+}

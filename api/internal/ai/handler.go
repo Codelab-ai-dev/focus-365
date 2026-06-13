@@ -33,6 +33,7 @@ func Routes(svc *Service, chat *ChatService) http.Handler {
 	r.Post("/chat/stream", handleChatStream(chat))
 	r.Post("/actions/{id}/confirm", handleActionConfirm(chat))
 	r.Post("/actions/{id}/cancel", handleActionCancel(chat))
+	r.Post("/actions/{id}/undo", handleActionUndo(chat))
 	return r
 }
 
@@ -241,15 +242,15 @@ func parseTodayParam(r *http.Request) time.Time {
 	return time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, time.UTC)
 }
 
-// actionMessageResponse envuelve el mensaje actualizado tras confirm/cancel.
-type actionMessageResponse struct {
-	Message Message `json:"message"`
+// actionResponse envuelve la acción actualizada tras confirm/cancel.
+type actionResponse struct {
+	Action ActionView `json:"action"`
 }
 
 // resolveAction maneja lo común de confirm/cancel: auth, parseo del id y la
 // traducción de errores del servicio a HTTP.
 func resolveAction(w http.ResponseWriter, r *http.Request,
-	do func(ctx context.Context, userID, id uuid.UUID) (*Message, error)) {
+	do func(ctx context.Context, userID, id uuid.UUID) (*ActionView, error)) {
 	userID, ok := auth.UserIDFromContext(r.Context())
 	if !ok {
 		httpx.WriteErr(w, http.StatusUnauthorized, "no autorizado")
@@ -260,7 +261,7 @@ func resolveAction(w http.ResponseWriter, r *http.Request,
 		httpx.WriteErr(w, http.StatusNotFound, "acción no encontrada")
 		return
 	}
-	msg, err := do(r.Context(), userID, id)
+	action, err := do(r.Context(), userID, id)
 	if err != nil {
 		switch {
 		case errors.Is(err, ErrActionNotFound):
@@ -274,12 +275,12 @@ func resolveAction(w http.ResponseWriter, r *http.Request,
 		}
 		return
 	}
-	httpx.WriteJSON(w, http.StatusOK, actionMessageResponse{Message: *msg})
+	httpx.WriteJSON(w, http.StatusOK, actionResponse{Action: *action})
 }
 
 func handleActionConfirm(chat *ChatService) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		resolveAction(w, r, func(ctx context.Context, userID, id uuid.UUID) (*Message, error) {
+		resolveAction(w, r, func(ctx context.Context, userID, id uuid.UUID) (*ActionView, error) {
 			return chat.ConfirmAction(ctx, userID, id, parseTodayParam(r))
 		})
 	}
@@ -287,8 +288,16 @@ func handleActionConfirm(chat *ChatService) http.HandlerFunc {
 
 func handleActionCancel(chat *ChatService) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		resolveAction(w, r, func(ctx context.Context, userID, id uuid.UUID) (*Message, error) {
+		resolveAction(w, r, func(ctx context.Context, userID, id uuid.UUID) (*ActionView, error) {
 			return chat.CancelAction(ctx, userID, id)
+		})
+	}
+}
+
+func handleActionUndo(chat *ChatService) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		resolveAction(w, r, func(ctx context.Context, userID, id uuid.UUID) (*ActionView, error) {
+			return chat.UndoAction(ctx, userID, id)
 		})
 	}
 }

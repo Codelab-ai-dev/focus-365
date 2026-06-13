@@ -20,7 +20,7 @@ type fakeChatGroq struct {
 	lastHistory []ChatMsg
 	lastTools   []Tool
 	chatDeltas  []string
-	toolCall    *ToolCall
+	toolCalls   []ToolCall
 }
 
 func (f *fakeChatGroq) Chat(ctx context.Context, system string, history []ChatMsg) (string, error) {
@@ -32,7 +32,7 @@ func (f *fakeChatGroq) Chat(ctx context.Context, system string, history []ChatMs
 
 // ChatStream del fake: emite chatDeltas en orden y devuelve su concatenación,
 // o err si está seteado (simula corte a medias tras emitir los deltas).
-func (f *fakeChatGroq) ChatStream(ctx context.Context, system string, history []ChatMsg, tools []Tool, onDelta func(string)) (string, *ToolCall, error) {
+func (f *fakeChatGroq) ChatStream(ctx context.Context, system string, history []ChatMsg, tools []Tool, onDelta func(string)) (string, []ToolCall, error) {
 	f.called++
 	f.lastSystem = system
 	f.lastHistory = history
@@ -45,7 +45,7 @@ func (f *fakeChatGroq) ChatStream(ctx context.Context, system string, history []
 	if f.err != nil {
 		return "", nil, f.err
 	}
-	return full, f.toolCall, nil
+	return full, f.toolCalls, nil
 }
 
 // fakeCtx devuelve un JSON fijo.
@@ -58,9 +58,11 @@ func (f fakeCtx) build(ctx context.Context, userID uuid.UUID, today time.Time) (
 	return f.out, f.err
 }
 
-// memStore es un messageStore en memoria (sin DB) por usuario.
+// memStore es un messageStore en memoria (sin DB) por usuario. Guarda los
+// mensajes y sus acciones por separado, como la tabla ai_actions.
 type memStore struct {
-	rows []store.AiMessage
+	rows    []store.AiMessage
+	actions []store.AiAction
 }
 
 func (m *memStore) ListMessages(ctx context.Context, userID uuid.UUID) ([]store.AiMessage, error) {
@@ -234,44 +236,68 @@ func TestChatSendStreamNoKeyDegrades(t *testing.T) {
 	}
 }
 
-func (m *memStore) CreatePairWithAction(ctx context.Context, userID uuid.UUID, userText, assistantText, kind string, payload []byte) (store.AiMessage, error) {
+func (m *memStore) CreatePairWithActions(ctx context.Context, userID uuid.UUID, userText, assistantText string, actions []ProposedAction) (store.AiMessage, []store.AiAction, error) {
 	user := store.AiMessage{
 		ID: uuid.New(), UserID: userID, Role: "user", Content: userText,
 		CreatedAt: time.Now().Add(time.Duration(len(m.rows)) * time.Millisecond),
 	}
 	m.rows = append(m.rows, user)
-	status := "proposed"
 	assistant := store.AiMessage{
 		ID: uuid.New(), UserID: userID, Role: "assistant", Content: assistantText,
-		ActionKind: &kind, ActionPayload: payload, ActionStatus: &status,
 		CreatedAt: time.Now().Add(time.Duration(len(m.rows)) * time.Millisecond),
 	}
 	m.rows = append(m.rows, assistant)
-	return assistant, nil
+	out := make([]store.AiAction, 0, len(actions))
+	for i, a := range actions {
+		act := store.AiAction{
+			ID: uuid.New(), MessageID: assistant.ID, UserID: userID,
+			Position: int32(i), Kind: a.Kind, Payload: a.Payload, Status: "proposed",
+			CreatedAt: time.Now(),
+		}
+		m.actions = append(m.actions, act)
+		out = append(out, act)
+	}
+	return assistant, out, nil
 }
 
-func (m *memStore) GetMessageForAction(ctx context.Context, id, userID uuid.UUID) (store.AiMessage, error) {
-	for _, r := range m.rows {
-		if r.ID == id && r.UserID == userID {
-			return r, nil
+func (m *memStore) ListActionsByMessages(ctx context.Context, messageIDs []uuid.UUID) ([]store.AiAction, error) {
+	want := make(map[uuid.UUID]bool, len(messageIDs))
+	for _, id := range messageIDs {
+		want[id] = true
+	}
+	out := make([]store.AiAction, 0, len(m.actions))
+	for _, a := range m.actions {
+		if want[a.MessageID] {
+			out = append(out, a)
 		}
 	}
-	return store.AiMessage{}, pgx.ErrNoRows
+	return out, nil
 }
 
-func (m *memStore) SetActionStatus(ctx context.Context, id, userID uuid.UUID, status string) (store.AiMessage, error) {
-	for i, r := range m.rows {
-		if r.ID == id && r.UserID == userID && r.ActionStatus != nil && *r.ActionStatus == "proposed" {
-			s := status
-			m.rows[i].ActionStatus = &s
-			return m.rows[i], nil
+func (m *memStore) GetAction(ctx context.Context, id, userID uuid.UUID) (store.AiAction, error) {
+	for _, a := range m.actions {
+		if a.ID == id && a.UserID == userID {
+			return a, nil
 		}
 	}
-	return store.AiMessage{}, pgx.ErrNoRows
+	return store.AiAction{}, pgx.ErrNoRows
+}
+
+func (m *memStore) SetActionStatusFrom(ctx context.Context, id, userID uuid.UUID, to string, result []byte, from string) (store.AiAction, error) {
+	for i, a := range m.actions {
+		if a.ID == id && a.UserID == userID && a.Status == from {
+			m.actions[i].Status = to
+			if result != nil {
+				m.actions[i].Result = result
+			}
+			return m.actions[i], nil
+		}
+	}
+	return store.AiAction{}, pgx.ErrNoRows
 }
 
 func TestChatSendStreamToolCallPersistsProposal(t *testing.T) {
-	groq := &fakeChatGroq{toolCall: &ToolCall{Name: "registrar_checkin", Arguments: `{"mood":8,"energy":6,"discipline":9}`}}
+	groq := &fakeChatGroq{toolCalls: []ToolCall{{Name: "registrar_checkin", Arguments: `{"mood":8,"energy":6,"discipline":9}`}}}
 	st := &memStore{}
 	svc := NewChatService(fakeCtx{out: "{}"}, st, groq, groq, nil, true)
 	uid := uuid.New()
@@ -280,11 +306,14 @@ func TestChatSendStreamToolCallPersistsProposal(t *testing.T) {
 	if err != nil {
 		t.Fatalf("SendStream: %v", err)
 	}
-	if msg.Action == nil || msg.Action.Kind != "checkin" || msg.Action.Status != "proposed" {
-		t.Fatalf("action = %+v", msg.Action)
+	if len(msg.Actions) != 1 || msg.Actions[0].Kind != "checkin" || msg.Actions[0].Status != "proposed" {
+		t.Fatalf("actions = %+v", msg.Actions)
 	}
 	if msg.ID == "" {
 		t.Error("falta ID en el mensaje")
+	}
+	if msg.Actions[0].ID == "" {
+		t.Error("falta ID en la acción")
 	}
 	if msg.Content == "" {
 		t.Error("el contenido no debe quedar vacío (resumen generado)")
@@ -292,13 +321,13 @@ func TestChatSendStreamToolCallPersistsProposal(t *testing.T) {
 	if len(groq.lastTools) != 7 {
 		t.Errorf("tools enviadas = %d, want 7", len(groq.lastTools))
 	}
-	if len(st.rows) != 2 || st.rows[1].ActionKind == nil {
-		t.Errorf("persistencia = %+v", st.rows)
+	if len(st.rows) != 2 || len(st.actions) != 1 {
+		t.Errorf("persistencia = rows=%+v actions=%+v", st.rows, st.actions)
 	}
 }
 
 func TestChatSendStreamUnknownToolDegrades(t *testing.T) {
-	groq := &fakeChatGroq{toolCall: &ToolCall{Name: "borrar_todo", Arguments: `{}`}}
+	groq := &fakeChatGroq{toolCalls: []ToolCall{{Name: "borrar_todo", Arguments: `{}`}}}
 	st := &memStore{}
 	svc := NewChatService(fakeCtx{out: "{}"}, st, groq, groq, nil, true)
 
@@ -312,7 +341,7 @@ func TestChatSendStreamUnknownToolDegrades(t *testing.T) {
 }
 
 func TestChatHistoryIncludesAction(t *testing.T) {
-	groq := &fakeChatGroq{toolCall: &ToolCall{Name: "marcar_habito", Arguments: `{"habit_id":"3b39c1f1-58a6-4012-9b69-0a3f4f6f3a11"}`}}
+	groq := &fakeChatGroq{toolCalls: []ToolCall{{Name: "marcar_habito", Arguments: `{"habit_id":"3b39c1f1-58a6-4012-9b69-0a3f4f6f3a11"}`}}}
 	st := &memStore{}
 	svc := NewChatService(fakeCtx{out: "{}"}, st, groq, groq, nil, true)
 	uid := uuid.New()
@@ -324,7 +353,7 @@ func TestChatHistoryIncludesAction(t *testing.T) {
 		t.Fatalf("History: %v", err)
 	}
 	last := msgs[len(msgs)-1]
-	if last.Action == nil || last.Action.Kind != "habito" || last.ID == "" {
+	if len(last.Actions) != 1 || last.Actions[0].Kind != "habito" || last.ID == "" {
 		t.Errorf("history sin acción: %+v", last)
 	}
 }
@@ -339,44 +368,45 @@ func proposeCheckin(t *testing.T, svc *ChatService, uid uuid.UUID) *Message {
 }
 
 func TestConfirmActionExecutesAndTransitions(t *testing.T) {
-	groq := &fakeChatGroq{toolCall: &ToolCall{Name: "registrar_checkin", Arguments: `{"mood":8,"energy":6,"discipline":9}`}}
+	groq := &fakeChatGroq{toolCalls: []ToolCall{{Name: "registrar_checkin", Arguments: `{"mood":8,"energy":6,"discipline":9}`}}}
 	st := &memStore{}
 	c := &fakeCheckinSvc{}
-	svc := NewChatService(fakeCtx{out: "{}"}, st, groq, groq, newTestExecutor(c, &fakeFinanceSvc{}, &fakeHabitsSvc{}, &fakeGoalsSvc{}, &fakeHabitCreate{}, &fakeGoalCreate{}, &fakeWorkoutCreate{}), true)
+	svc := NewChatService(fakeCtx{out: "{}"}, st, groq, groq, newTestExecutor(c, &fakeFinanceSvc{}, &fakeHabitsSvc{}, &fakeGoalsSvc{}, &fakeTrainingSvc{}), true)
 	uid := uuid.New()
 	msg := proposeCheckin(t, svc, uid)
+	actionID := uuid.MustParse(msg.Actions[0].ID)
 
-	got, err := svc.ConfirmAction(context.Background(), uid, uuid.MustParse(msg.ID), time.Now())
+	got, err := svc.ConfirmAction(context.Background(), uid, actionID, time.Now())
 	if err != nil {
 		t.Fatalf("ConfirmAction: %v", err)
 	}
-	if got.Action == nil || got.Action.Status != "done" {
-		t.Errorf("status = %+v", got.Action)
+	if got.Status != "done" {
+		t.Errorf("status = %+v", got)
 	}
 	if c.in == nil || c.in.Mood != 8 {
 		t.Errorf("no ejecutó el check-in: %+v", c.in)
 	}
 
 	// Doble confirm → conflicto.
-	if _, err := svc.ConfirmAction(context.Background(), uid, uuid.MustParse(msg.ID), time.Now()); !errors.Is(err, ErrActionConflict) {
+	if _, err := svc.ConfirmAction(context.Background(), uid, actionID, time.Now()); !errors.Is(err, ErrActionConflict) {
 		t.Errorf("doble confirm err = %v, want ErrActionConflict", err)
 	}
 }
 
 func TestCancelActionTransitionsWithoutExecuting(t *testing.T) {
-	groq := &fakeChatGroq{toolCall: &ToolCall{Name: "registrar_checkin", Arguments: `{"mood":8,"energy":6,"discipline":9}`}}
+	groq := &fakeChatGroq{toolCalls: []ToolCall{{Name: "registrar_checkin", Arguments: `{"mood":8,"energy":6,"discipline":9}`}}}
 	st := &memStore{}
 	c := &fakeCheckinSvc{}
-	svc := NewChatService(fakeCtx{out: "{}"}, st, groq, groq, newTestExecutor(c, &fakeFinanceSvc{}, &fakeHabitsSvc{}, &fakeGoalsSvc{}, &fakeHabitCreate{}, &fakeGoalCreate{}, &fakeWorkoutCreate{}), true)
+	svc := NewChatService(fakeCtx{out: "{}"}, st, groq, groq, newTestExecutor(c, &fakeFinanceSvc{}, &fakeHabitsSvc{}, &fakeGoalsSvc{}, &fakeTrainingSvc{}), true)
 	uid := uuid.New()
 	msg := proposeCheckin(t, svc, uid)
 
-	got, err := svc.CancelAction(context.Background(), uid, uuid.MustParse(msg.ID))
+	got, err := svc.CancelAction(context.Background(), uid, uuid.MustParse(msg.Actions[0].ID))
 	if err != nil {
 		t.Fatalf("CancelAction: %v", err)
 	}
-	if got.Action == nil || got.Action.Status != "cancelled" {
-		t.Errorf("status = %+v", got.Action)
+	if got.Status != "cancelled" {
+		t.Errorf("status = %+v", got)
 	}
 	if c.in != nil {
 		t.Error("cancelar no debe ejecutar nada")
@@ -384,16 +414,69 @@ func TestCancelActionTransitionsWithoutExecuting(t *testing.T) {
 }
 
 func TestConfirmActionNotFound(t *testing.T) {
-	svc := NewChatService(fakeCtx{out: "{}"}, &memStore{}, &fakeChatGroq{}, &fakeChatGroq{}, newTestExecutor(&fakeCheckinSvc{}, &fakeFinanceSvc{}, &fakeHabitsSvc{}, &fakeGoalsSvc{}, &fakeHabitCreate{}, &fakeGoalCreate{}, &fakeWorkoutCreate{}), true)
+	svc := NewChatService(fakeCtx{out: "{}"}, &memStore{}, &fakeChatGroq{}, &fakeChatGroq{}, newTestExecutor(&fakeCheckinSvc{}, &fakeFinanceSvc{}, &fakeHabitsSvc{}, &fakeGoalsSvc{}, &fakeTrainingSvc{}), true)
 	if _, err := svc.ConfirmAction(context.Background(), uuid.New(), uuid.New(), time.Now()); !errors.Is(err, ErrActionNotFound) {
 		t.Errorf("err = %v, want ErrActionNotFound", err)
+	}
+}
+
+func TestChatSendStreamMultipleActions(t *testing.T) {
+	groq := &fakeChatGroq{toolCalls: []ToolCall{
+		{Name: "registrar_checkin", Arguments: `{"mood":8,"energy":7,"discipline":9}`},
+		{Name: "marcar_habito", Arguments: `{"habit_id":"3b39c1f1-58a6-4012-9b69-0a3f4f6f3a11"}`},
+	}}
+	st := &memStore{}
+	svc := NewChatService(fakeCtx{out: "{}"}, st, groq, groq, nil, true)
+	msg, err := svc.SendStream(context.Background(), uuid.New(), "check-in y meditación", time.Now(), func(string) {})
+	if err != nil {
+		t.Fatalf("SendStream: %v", err)
+	}
+	if len(msg.Actions) != 2 {
+		t.Fatalf("actions = %d, want 2", len(msg.Actions))
+	}
+	if msg.Actions[0].Kind != "checkin" || msg.Actions[1].Kind != "habito" {
+		t.Errorf("kinds = %s, %s", msg.Actions[0].Kind, msg.Actions[1].Kind)
+	}
+	if msg.Content == "" {
+		t.Error("contenido de fallback vacío")
+	}
+}
+
+func TestChatSendStreamTooManyActionsDegrades(t *testing.T) {
+	var calls []ToolCall
+	for i := 0; i < 6; i++ {
+		calls = append(calls, ToolCall{Name: "registrar_checkin", Arguments: `{"mood":8,"energy":7,"discipline":9}`})
+	}
+	st := &memStore{}
+	groq := &fakeChatGroq{toolCalls: calls}
+	svc := NewChatService(fakeCtx{out: "{}"}, st, groq, groq, nil, true)
+	if _, err := svc.SendStream(context.Background(), uuid.New(), "x", time.Now(), func(string) {}); !errors.Is(err, ErrUnavailable) {
+		t.Errorf("err = %v, want ErrUnavailable", err)
+	}
+	if len(st.rows) != 0 {
+		t.Error("no debe persistir nada")
+	}
+}
+
+func TestChatSendStreamOneInvalidActionDiscardsAll(t *testing.T) {
+	groq := &fakeChatGroq{toolCalls: []ToolCall{
+		{Name: "registrar_checkin", Arguments: `{"mood":8,"energy":7,"discipline":9}`},
+		{Name: "tool_inexistente", Arguments: `{}`},
+	}}
+	st := &memStore{}
+	svc := NewChatService(fakeCtx{out: "{}"}, st, groq, groq, nil, true)
+	if _, err := svc.SendStream(context.Background(), uuid.New(), "x", time.Now(), func(string) {}); !errors.Is(err, ErrUnavailable) {
+		t.Errorf("err = %v, want ErrUnavailable", err)
+	}
+	if len(st.rows) != 0 {
+		t.Error("all-or-nothing: nada persistido")
 	}
 }
 
 func TestConfirmActionOnPlainMessageIsNotFound(t *testing.T) {
 	groq := &fakeChatGroq{chatDeltas: []string{"hola"}}
 	st := &memStore{}
-	svc := NewChatService(fakeCtx{out: "{}"}, st, groq, groq, newTestExecutor(&fakeCheckinSvc{}, &fakeFinanceSvc{}, &fakeHabitsSvc{}, &fakeGoalsSvc{}, &fakeHabitCreate{}, &fakeGoalCreate{}, &fakeWorkoutCreate{}), true)
+	svc := NewChatService(fakeCtx{out: "{}"}, st, groq, groq, newTestExecutor(&fakeCheckinSvc{}, &fakeFinanceSvc{}, &fakeHabitsSvc{}, &fakeGoalsSvc{}, &fakeTrainingSvc{}), true)
 	uid := uuid.New()
 	msg, err := svc.SendStream(context.Background(), uid, "hola", time.Now(), func(string) {})
 	if err != nil {
@@ -401,5 +484,80 @@ func TestConfirmActionOnPlainMessageIsNotFound(t *testing.T) {
 	}
 	if _, err := svc.ConfirmAction(context.Background(), uid, uuid.MustParse(msg.ID), time.Now()); !errors.Is(err, ErrActionNotFound) {
 		t.Errorf("err = %v, want ErrActionNotFound", err)
+	}
+}
+
+// confirmCheckin propone y confirma un check-in, devolviendo el service, uid y actionID.
+func confirmCheckin(t *testing.T, c *fakeCheckinSvc) (*ChatService, uuid.UUID, uuid.UUID) {
+	t.Helper()
+	groq := &fakeChatGroq{toolCalls: []ToolCall{{Name: "registrar_checkin", Arguments: `{"mood":8,"energy":6,"discipline":9}`}}}
+	svc := NewChatService(fakeCtx{out: "{}"}, &memStore{}, groq, groq, newTestExecutor(c, &fakeFinanceSvc{}, &fakeHabitsSvc{}, &fakeGoalsSvc{}, &fakeTrainingSvc{}), true)
+	uid := uuid.New()
+	msg := proposeCheckin(t, svc, uid)
+	actionID := uuid.MustParse(msg.Actions[0].ID)
+	if _, err := svc.ConfirmAction(context.Background(), uid, actionID, time.Now()); err != nil {
+		t.Fatalf("ConfirmAction: %v", err)
+	}
+	return svc, uid, actionID
+}
+
+func TestUndoActionRevierteYTransiciona(t *testing.T) {
+	c := &fakeCheckinSvc{} // sin previo → undo borra
+	svc, uid, actionID := confirmCheckin(t, c)
+
+	got, err := svc.UndoAction(context.Background(), uid, actionID)
+	if err != nil {
+		t.Fatalf("UndoAction: %v", err)
+	}
+	if got.Status != "undone" {
+		t.Errorf("status = %s, want undone", got.Status)
+	}
+	if !c.deleted {
+		t.Error("undo sin previo debía borrar el check-in")
+	}
+}
+
+func TestUndoActionSoloUnaVez(t *testing.T) {
+	c := &fakeCheckinSvc{}
+	svc, uid, actionID := confirmCheckin(t, c)
+	if _, err := svc.UndoAction(context.Background(), uid, actionID); err != nil {
+		t.Fatalf("primer undo: %v", err)
+	}
+	if _, err := svc.UndoAction(context.Background(), uid, actionID); !errors.Is(err, ErrActionConflict) {
+		t.Errorf("segundo undo err = %v, want ErrActionConflict", err)
+	}
+}
+
+func TestUndoActionDeProposedEsConflicto(t *testing.T) {
+	groq := &fakeChatGroq{toolCalls: []ToolCall{{Name: "registrar_checkin", Arguments: `{"mood":8,"energy":6,"discipline":9}`}}}
+	svc := NewChatService(fakeCtx{out: "{}"}, &memStore{}, groq, groq, newTestExecutor(&fakeCheckinSvc{}, &fakeFinanceSvc{}, &fakeHabitsSvc{}, &fakeGoalsSvc{}, &fakeTrainingSvc{}), true)
+	uid := uuid.New()
+	msg := proposeCheckin(t, svc, uid)
+	actionID := uuid.MustParse(msg.Actions[0].ID)
+	// Sin confirmar: la acción sigue proposed.
+	if _, err := svc.UndoAction(context.Background(), uid, actionID); !errors.Is(err, ErrActionConflict) {
+		t.Errorf("undo de proposed err = %v, want ErrActionConflict", err)
+	}
+}
+
+func TestUndoActionNotFound(t *testing.T) {
+	svc := NewChatService(fakeCtx{out: "{}"}, &memStore{}, &fakeChatGroq{}, &fakeChatGroq{}, newTestExecutor(&fakeCheckinSvc{}, &fakeFinanceSvc{}, &fakeHabitsSvc{}, &fakeGoalsSvc{}, &fakeTrainingSvc{}), true)
+	if _, err := svc.UndoAction(context.Background(), uuid.New(), uuid.New()); !errors.Is(err, ErrActionNotFound) {
+		t.Errorf("err = %v, want ErrActionNotFound", err)
+	}
+}
+
+func TestUndoActionErrorDeDBNoTransiciona(t *testing.T) {
+	// El check-in se confirma sin error; el undo (Delete) falla → sigue done.
+	c := &fakeCheckinSvc{}
+	svc, uid, actionID := confirmCheckin(t, c)
+	c.err = errors.New("db caída") // afecta al Delete del undo
+	if _, err := svc.UndoAction(context.Background(), uid, actionID); err == nil {
+		t.Fatal("esperaba error de DB en el undo")
+	}
+	// La acción sigue done: un segundo undo (sin error) debe poder revertirla.
+	c.err = nil
+	if got, err := svc.UndoAction(context.Background(), uid, actionID); err != nil || got.Status != "undone" {
+		t.Errorf("reintento undo: got %+v err %v", got, err)
 	}
 }

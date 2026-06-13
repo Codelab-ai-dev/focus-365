@@ -17,7 +17,7 @@ import (
 	"github.com/google/uuid"
 )
 
-// Kinds de acción persistidos en ai_messages.action_kind.
+// Kinds de acción persistidos en ai_actions.kind.
 const (
 	actionCheckin       = "checkin"
 	actionMovimiento    = "movimiento"
@@ -91,6 +91,10 @@ var goalDimensions = map[string]bool{
 }
 
 const maxWorkoutSets = 20
+
+// maxActionsPerTurn es el tope de acciones que el modelo puede proponer en un
+// turno. Si llegan más, el turno completo se descarta (all-or-nothing).
+const maxActionsPerTurn = 5
 
 func rango(v, min, max int, campo string) error {
 	if v < min || v > max {
@@ -265,103 +269,204 @@ var (
 	ErrActionInvalid  = errors.New("acción inválida")
 )
 
-// Interfaces estrechas sobre los servicios de dominio (testeables con fakes).
+// Interfaces estrechas (capacidades) sobre los servicios de dominio.
 type checkinUpserter interface {
 	Upsert(ctx context.Context, userID uuid.UUID, in checkin.Input) (*checkin.CheckIn, error)
+}
+
+type checkinUndoer interface {
+	Today(ctx context.Context, userID uuid.UUID, date time.Time) (*checkin.CheckIn, error)
+	Delete(ctx context.Context, userID uuid.UUID, date time.Time) (bool, error)
 }
 
 type txCreator interface {
 	Create(ctx context.Context, userID uuid.UUID, in finance.Input) (*finance.Transaction, error)
 }
 
-type habitChecker interface {
-	SetCheck(ctx context.Context, userID, habitID uuid.UUID, day time.Time, done bool, today time.Time) (*habits.Habit, error)
+type txDeleter interface {
+	Delete(ctx context.Context, userID, id uuid.UUID) (bool, error)
 }
 
-type goalPatcher interface {
-	Patch(ctx context.Context, userID, id uuid.UUID, p goals.GoalPatch, today time.Time) (*goals.Goal, error)
+type habitChecker interface {
+	SetCheck(ctx context.Context, userID, habitID uuid.UUID, day time.Time, done bool, today time.Time) (*habits.Habit, error)
 }
 
 type habitCreator interface {
 	Create(ctx context.Context, userID uuid.UUID, in habits.HabitInput, today time.Time) (*habits.Habit, error)
 }
 
+type habitDeleter interface {
+	Delete(ctx context.Context, userID, habitID uuid.UUID) (bool, error)
+}
+
+type goalPatcher interface {
+	Patch(ctx context.Context, userID, id uuid.UUID, p goals.GoalPatch, today time.Time) (*goals.Goal, error)
+}
+
 type goalCreator interface {
 	Create(ctx context.Context, userID uuid.UUID, in goals.GoalInput, today time.Time) (*goals.Goal, error)
+}
+
+type goalDeleter interface {
+	Delete(ctx context.Context, userID, id uuid.UUID) (bool, error)
+}
+
+type goalReader interface {
+	List(ctx context.Context, userID uuid.UUID, status string, today time.Time) ([]goals.Goal, error)
 }
 
 type workoutCreator interface {
 	CreateWorkout(ctx context.Context, userID uuid.UUID, in training.WorkoutInput) (*training.Workout, error)
 }
 
+type workoutDeleter interface {
+	DeleteWorkout(ctx context.Context, userID, id uuid.UUID) (bool, error)
+}
+
+// Interfaces compuestas por servicio real: el ejecutor depende de una por
+// servicio de dominio (cada una embebe las capacidades que necesita).
+type checkinSvc interface {
+	checkinUpserter
+	checkinUndoer
+}
+
+type financeSvc interface {
+	txCreator
+	txDeleter
+}
+
+type habitsSvc interface {
+	habitChecker
+	habitCreator
+	habitDeleter
+}
+
+type goalsSvc interface {
+	goalPatcher
+	goalCreator
+	goalDeleter
+	goalReader
+}
+
+type trainingSvc interface {
+	workoutCreator
+	workoutDeleter
+}
+
 // actionExecutor traduce una acción confirmada a la llamada del servicio de
 // dominio correspondiente. Re-valida el payload (defensa en profundidad: ya se
 // validó al proponer, pero el dato vivió en la DB entre medio).
 type actionExecutor struct {
-	checkin     checkinUpserter
-	finance     txCreator
-	habits      habitChecker
-	goals       goalPatcher
-	habitCreate habitCreator
-	goalCreate  goalCreator
-	workouts    workoutCreator
+	checkin  checkinSvc
+	finance  financeSvc
+	habits   habitsSvc
+	goals    goalsSvc
+	training trainingSvc
 }
 
 // NewActionExecutor arma el ejecutor con los servicios reales (wiring en server.go).
-func NewActionExecutor(c checkinUpserter, f txCreator, h habitChecker, g goalPatcher,
-	hc habitCreator, gc goalCreator, w workoutCreator) *actionExecutor {
-	return &actionExecutor{checkin: c, finance: f, habits: h, goals: g,
-		habitCreate: hc, goalCreate: gc, workouts: w}
+func NewActionExecutor(c checkinSvc, f financeSvc, h habitsSvc, g goalsSvc, t trainingSvc) *actionExecutor {
+	return &actionExecutor{checkin: c, finance: f, habits: h, goals: g, training: t}
 }
 
-func (e *actionExecutor) execute(ctx context.Context, userID uuid.UUID, kind string, payload []byte, today time.Time) error {
+// Tipos de result persistidos al confirmar; el undo los lee para revertir.
+type checkinResult struct {
+	Prev *checkinPayload `json:"prev"`
+	Date string          `json:"date"`
+}
+
+type idResult struct {
+	ID string `json:"id"`
+}
+
+type metaResult struct {
+	PrevProgress int32  `json:"prev_progress"`
+	GoalID       string `json:"goal_id"`
+}
+
+type dateResult struct {
+	HabitID string `json:"habit_id"`
+	Date    string `json:"date"`
+}
+
+// execute aplica la acción confirmada y devuelve el result (json) que el undo
+// usará para revertir. El result captura el estado previo y/o el id creado.
+func (e *actionExecutor) execute(ctx context.Context, userID uuid.UUID, kind string, payload []byte, today time.Time) (json.RawMessage, error) {
 	normalized, err := parseActionPayload(kind, string(payload))
 	if err != nil {
-		return fmt.Errorf("%w: %v", ErrActionInvalid, err)
+		return nil, fmt.Errorf("%w: %v", ErrActionInvalid, err)
 	}
+	dateStr := today.Format("2006-01-02")
 	switch kind {
 	case actionCheckin:
 		var p checkinPayload
 		_ = json.Unmarshal(normalized, &p)
-		_, err := e.checkin.Upsert(ctx, userID, checkin.Input{
+		// Lee el check-in del día ANTES del upsert para poder restaurarlo.
+		var prev *checkinPayload
+		if cur, err := e.checkin.Today(ctx, userID, today); err != nil {
+			return nil, err
+		} else if cur != nil {
+			prev = &checkinPayload{Mood: cur.Mood, Energy: cur.Energy, Discipline: cur.Discipline, Note: cur.Note}
+		}
+		if _, err := e.checkin.Upsert(ctx, userID, checkin.Input{
 			Date: today, Mood: p.Mood, Energy: p.Energy, Discipline: p.Discipline, Note: p.Note,
-		})
-		return err
+		}); err != nil {
+			return nil, err
+		}
+		return json.Marshal(checkinResult{Prev: prev, Date: dateStr})
 	case actionMovimiento:
 		var p movimientoPayload
 		_ = json.Unmarshal(normalized, &p)
-		_, err := e.finance.Create(ctx, userID, finance.Input{
+		tx, err := e.finance.Create(ctx, userID, finance.Input{
 			Type: p.Type, Amount: p.AmountCentavos, OccurredOn: today, Category: p.Category, Remark: p.Remark,
 		})
-		return err
+		if err != nil {
+			return nil, err
+		}
+		return json.Marshal(idResult{ID: tx.ID})
 	case actionHabito:
 		var p habitoPayload
 		_ = json.Unmarshal(normalized, &p)
 		h, err := e.habits.SetCheck(ctx, userID, uuid.MustParse(p.HabitID), today, true, today)
 		if err != nil {
-			return err
+			return nil, err
 		}
 		if h == nil {
-			return fmt.Errorf("%w: hábito no encontrado", ErrActionInvalid)
+			return nil, fmt.Errorf("%w: hábito no encontrado", ErrActionInvalid)
 		}
-		return nil
+		return json.Marshal(dateResult{HabitID: p.HabitID, Date: dateStr})
 	case actionMeta:
 		var p metaPayload
 		_ = json.Unmarshal(normalized, &p)
+		// Lee el progreso actual de la meta ANTES del patch (best-effort: 0 si no se
+		// encuentra). Asume que la meta está "activa" — es la única lista que el
+		// modelo ve y patchea; una meta fuera de ese estado caería al fallback 0.
+		var prevProgress int32
+		if list, err := e.goals.List(ctx, userID, "activa", today); err == nil {
+			for _, g := range list {
+				if g.ID == p.GoalID {
+					prevProgress = g.Progress
+					break
+				}
+			}
+		}
 		prog := int32(p.Progress)
 		g, err := e.goals.Patch(ctx, userID, uuid.MustParse(p.GoalID), goals.GoalPatch{Progress: &prog}, today)
 		if err != nil {
-			return err
+			return nil, err
 		}
 		if g == nil {
-			return fmt.Errorf("%w: meta no encontrada", ErrActionInvalid)
+			return nil, fmt.Errorf("%w: meta no encontrada", ErrActionInvalid)
 		}
-		return nil
+		return json.Marshal(metaResult{PrevProgress: prevProgress, GoalID: p.GoalID})
 	case actionHabitoNuevo:
 		var p habitoNuevoPayload
 		_ = json.Unmarshal(normalized, &p)
-		_, err := e.habitCreate.Create(ctx, userID, habits.HabitInput{Name: p.Name, TargetDays: p.TargetDays}, today)
-		return err
+		h, err := e.habits.Create(ctx, userID, habits.HabitInput{Name: p.Name, TargetDays: p.TargetDays}, today)
+		if err != nil {
+			return nil, err
+		}
+		return json.Marshal(idResult{ID: h.ID})
 	case actionMetaNueva:
 		var p metaNuevaPayload
 		_ = json.Unmarshal(normalized, &p)
@@ -370,8 +475,11 @@ func (e *actionExecutor) execute(ctx context.Context, userID uuid.UUID, kind str
 			d, _ := time.Parse("2006-01-02", p.Deadline) // ya validado en parse
 			deadline = &d
 		}
-		_, err := e.goalCreate.Create(ctx, userID, goals.GoalInput{Title: p.Title, Dimension: p.Dimension, Deadline: deadline}, today)
-		return err
+		g, err := e.goals.Create(ctx, userID, goals.GoalInput{Title: p.Title, Dimension: p.Dimension, Deadline: deadline}, today)
+		if err != nil {
+			return nil, err
+		}
+		return json.Marshal(idResult{ID: g.ID})
 	case actionEntrenamiento:
 		var p entrenamientoPayload
 		_ = json.Unmarshal(normalized, &p)
@@ -384,12 +492,91 @@ func (e *actionExecutor) execute(ctx context.Context, userID uuid.UUID, kind str
 			}
 			sets = append(sets, set)
 		}
-		_, err := e.workouts.CreateWorkout(ctx, userID, training.WorkoutInput{
+		w, err := e.training.CreateWorkout(ctx, userID, training.WorkoutInput{
 			Date: today, Type: p.Type, Note: p.Note, Sets: sets,
 		})
+		if err != nil {
+			return nil, err
+		}
+		return json.Marshal(idResult{ID: w.ID})
+	}
+	return nil, fmt.Errorf("%w: kind %s", ErrActionInvalid, kind)
+}
+
+// undo revierte una acción done usando el result guardado. «Ya no existe»
+// (Delete false / Patch nil) NO es error: se transiciona igual. Un error real
+// de DB aborta sin transicionar. Result corrupto → ErrActionInvalid.
+func (e *actionExecutor) undo(ctx context.Context, userID uuid.UUID, kind string, payload, result []byte) error {
+	switch kind {
+	case actionCheckin:
+		var r checkinResult
+		if err := json.Unmarshal(result, &r); err != nil {
+			return fmt.Errorf("%w: result corrupto", ErrActionInvalid)
+		}
+		date, err := time.Parse("2006-01-02", r.Date)
+		if err != nil {
+			return fmt.Errorf("%w: fecha corrupta", ErrActionInvalid)
+		}
+		if r.Prev == nil {
+			_, err := e.checkin.Delete(ctx, userID, date)
+			return err
+		}
+		_, err = e.checkin.Upsert(ctx, userID, checkin.Input{
+			Date: date, Mood: r.Prev.Mood, Energy: r.Prev.Energy,
+			Discipline: r.Prev.Discipline, Note: r.Prev.Note,
+		})
 		return err
+	case actionMovimiento:
+		var r idResult
+		_ = json.Unmarshal(result, &r)
+		id, err := uuid.Parse(r.ID)
+		if err != nil {
+			return fmt.Errorf("%w: result corrupto", ErrActionInvalid)
+		}
+		_, err = e.finance.Delete(ctx, userID, id) // false = ya no existe: ok
+		return err
+	case actionHabito:
+		var r dateResult
+		_ = json.Unmarshal(result, &r)
+		date, err := time.Parse("2006-01-02", r.Date)
+		if err != nil {
+			return fmt.Errorf("%w: fecha corrupta", ErrActionInvalid)
+		}
+		habitID, err := uuid.Parse(r.HabitID)
+		if err != nil {
+			return fmt.Errorf("%w: result corrupto", ErrActionInvalid)
+		}
+		_, err = e.habits.SetCheck(ctx, userID, habitID, date, false, date)
+		return err
+	case actionMeta:
+		var r metaResult
+		_ = json.Unmarshal(result, &r)
+		goalID, err := uuid.Parse(r.GoalID)
+		if err != nil {
+			return fmt.Errorf("%w: result corrupto", ErrActionInvalid)
+		}
+		prog := r.PrevProgress
+		_, err = e.goals.Patch(ctx, userID, goalID, goals.GoalPatch{Progress: &prog}, time.Now().UTC())
+		return err // Patch (nil,nil) si ya no existe → err nil: ok
+	case actionHabitoNuevo:
+		return undoDeleteByID(result, func(id uuid.UUID) (bool, error) { return e.habits.Delete(ctx, userID, id) })
+	case actionMetaNueva:
+		return undoDeleteByID(result, func(id uuid.UUID) (bool, error) { return e.goals.Delete(ctx, userID, id) })
+	case actionEntrenamiento:
+		return undoDeleteByID(result, func(id uuid.UUID) (bool, error) { return e.training.DeleteWorkout(ctx, userID, id) })
 	}
 	return fmt.Errorf("%w: kind %s", ErrActionInvalid, kind)
+}
+
+func undoDeleteByID(result []byte, del func(uuid.UUID) (bool, error)) error {
+	var r idResult
+	_ = json.Unmarshal(result, &r)
+	id, err := uuid.Parse(r.ID)
+	if err != nil {
+		return fmt.Errorf("%w: result corrupto", ErrActionInvalid)
+	}
+	_, err = del(id) // false = ya no existe (best-effort): ok
+	return err
 }
 
 // buildChatTools define las functions que se ofrecen al modelo.

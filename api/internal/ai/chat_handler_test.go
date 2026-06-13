@@ -270,23 +270,27 @@ func proposeViaChat(t *testing.T, e *env, tok string) string {
 		t.Fatal("sin mensajes tras proponer")
 	}
 	last, _ := msgs[len(msgs)-1].(map[string]any)
-	action, _ := last["action"].(map[string]any)
+	actions, _ := last["actions"].([]any)
+	if len(actions) == 0 {
+		t.Fatalf("último mensaje sin acciones: %v", last)
+	}
+	action, _ := actions[0].(map[string]any)
 	if action == nil || action["status"] != "proposed" {
 		t.Fatalf("último mensaje sin acción proposed: %v", last)
 	}
-	id, _ := last["id"].(string)
+	id, _ := action["id"].(string)
 	if id == "" {
-		t.Fatal("mensaje sin id")
+		t.Fatal("acción sin id")
 	}
 	return id
 }
 
-func checkinToolCall() *ai.ToolCall {
-	return &ai.ToolCall{Name: "registrar_checkin", Arguments: `{"mood":8,"energy":6,"discipline":9}`}
+func checkinToolCall() []ai.ToolCall {
+	return []ai.ToolCall{{Name: "registrar_checkin", Arguments: `{"mood":8,"energy":6,"discipline":9}`}}
 }
 
 func TestActionConfirmHappyPath(t *testing.T) {
-	comp := &fakeCompleter{chatToolCall: checkinToolCall()}
+	comp := &fakeCompleter{chatToolCalls: checkinToolCall()}
 	e := newEnv(t, true, comp)
 	uid, tok := e.user(t, "action-ok@b.com")
 	id := proposeViaChat(t, e, tok)
@@ -295,8 +299,7 @@ func TestActionConfirmHappyPath(t *testing.T) {
 	if rec.Code != http.StatusOK {
 		t.Fatalf("confirm code = %d, body = %s", rec.Code, rec.Body.String())
 	}
-	msg, _ := body["message"].(map[string]any)
-	action, _ := msg["action"].(map[string]any)
+	action, _ := body["action"].(map[string]any)
 	if action["status"] != "done" {
 		t.Errorf("status = %v", action)
 	}
@@ -319,7 +322,7 @@ func TestActionConfirmHappyPath(t *testing.T) {
 }
 
 func TestActionCancel(t *testing.T) {
-	comp := &fakeCompleter{chatToolCall: checkinToolCall()}
+	comp := &fakeCompleter{chatToolCalls: checkinToolCall()}
 	e := newEnv(t, true, comp)
 	uid, tok := e.user(t, "action-cancel@b.com")
 	id := proposeViaChat(t, e, tok)
@@ -328,8 +331,7 @@ func TestActionCancel(t *testing.T) {
 	if rec.Code != http.StatusOK {
 		t.Fatalf("cancel code = %d", rec.Code)
 	}
-	msg, _ := body["message"].(map[string]any)
-	action, _ := msg["action"].(map[string]any)
+	action, _ := body["action"].(map[string]any)
 	if action["status"] != "cancelled" {
 		t.Errorf("status = %v", action)
 	}
@@ -342,8 +344,8 @@ func TestActionCancel(t *testing.T) {
 }
 
 func TestActionConfirmInvalidPayloadIs400AndStaysProposed(t *testing.T) {
-	comp := &fakeCompleter{chatToolCall: &ai.ToolCall{
-		Name: "marcar_habito", Arguments: `{"habit_id":"3b39c1f1-58a6-4012-9b69-0a3f4f6f3a11"}`,
+	comp := &fakeCompleter{chatToolCalls: []ai.ToolCall{
+		{Name: "marcar_habito", Arguments: `{"habit_id":"3b39c1f1-58a6-4012-9b69-0a3f4f6f3a11"}`},
 	}}
 	e := newEnv(t, true, comp)
 	_, tok := e.user(t, "action-400@b.com")
@@ -358,15 +360,16 @@ func TestActionConfirmInvalidPayloadIs400AndStaysProposed(t *testing.T) {
 	_, body := getMessages(t, e.h, tok)
 	msgs, _ := body["messages"].([]any)
 	last, _ := msgs[len(msgs)-1].(map[string]any)
-	action, _ := last["action"].(map[string]any)
+	actions, _ := last["actions"].([]any)
+	action, _ := actions[0].(map[string]any)
 	if action["status"] != "proposed" {
 		t.Errorf("status = %v, want proposed", action["status"])
 	}
 }
 
 func TestActionCrearHabitoEndToEnd(t *testing.T) {
-	comp := &fakeCompleter{chatToolCall: &ai.ToolCall{
-		Name: "crear_habito", Arguments: `{"name":"Leer 30 min","target_days":21}`,
+	comp := &fakeCompleter{chatToolCalls: []ai.ToolCall{
+		{Name: "crear_habito", Arguments: `{"name":"Leer 30 min","target_days":21}`},
 	}}
 	e := newEnv(t, true, comp)
 	uid, tok := e.user(t, "habito-nuevo@b.com")
@@ -376,8 +379,7 @@ func TestActionCrearHabitoEndToEnd(t *testing.T) {
 	if rec.Code != http.StatusOK {
 		t.Fatalf("confirm code = %d, body = %s", rec.Code, rec.Body.String())
 	}
-	msg, _ := body["message"].(map[string]any)
-	action, _ := msg["action"].(map[string]any)
+	action, _ := body["action"].(map[string]any)
 	if action["status"] != "done" || action["kind"] != "habito_nuevo" {
 		t.Errorf("action = %v", action)
 	}
@@ -398,8 +400,49 @@ func TestActionCrearHabitoEndToEnd(t *testing.T) {
 	}
 }
 
+func TestActionUndoHappyPath(t *testing.T) {
+	comp := &fakeCompleter{chatToolCalls: checkinToolCall()}
+	e := newEnv(t, true, comp)
+	uid, tok := e.user(t, "undo-ok@b.com")
+	id := proposeViaChat(t, e, tok)
+	if rec, _ := postAction(t, e.h, tok, id, "confirm"); rec.Code != http.StatusOK {
+		t.Fatalf("confirm = %d", rec.Code)
+	}
+	// El check-in existe…
+	if _, err := e.q.GetCheckInByDate(context.Background(), store.GetCheckInByDateParams{UserID: uid, Date: dayTime(t)}); err != nil {
+		t.Fatalf("check-in no escrito: %v", err)
+	}
+	// …deshacer…
+	rec, body := postAction(t, e.h, tok, id, "undo")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("undo = %d, body = %s", rec.Code, rec.Body.String())
+	}
+	action, _ := body["action"].(map[string]any)
+	if action["status"] != "undone" {
+		t.Errorf("status = %v", action["status"])
+	}
+	// …y el check-in del día desapareció (no había previo).
+	if _, err := e.q.GetCheckInByDate(context.Background(), store.GetCheckInByDateParams{UserID: uid, Date: dayTime(t)}); err == nil {
+		t.Error("el check-in debía borrarse al deshacer")
+	}
+	// Doble undo → 409.
+	if rec2, _ := postAction(t, e.h, tok, id, "undo"); rec2.Code != http.StatusConflict {
+		t.Errorf("doble undo = %d, want 409", rec2.Code)
+	}
+}
+
+func TestActionUndoDeProposedEs409(t *testing.T) {
+	comp := &fakeCompleter{chatToolCalls: checkinToolCall()}
+	e := newEnv(t, true, comp)
+	_, tok := e.user(t, "undo-409@b.com")
+	id := proposeViaChat(t, e, tok)
+	if rec, _ := postAction(t, e.h, tok, id, "undo"); rec.Code != http.StatusConflict {
+		t.Errorf("undo de proposed = %d, want 409", rec.Code)
+	}
+}
+
 func TestActionErrors(t *testing.T) {
-	comp := &fakeCompleter{chatToolCall: checkinToolCall()}
+	comp := &fakeCompleter{chatToolCalls: checkinToolCall()}
 	e := newEnv(t, true, comp)
 	_, tok := e.user(t, "action-err@b.com")
 

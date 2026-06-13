@@ -74,6 +74,15 @@ func (s *Service) Today(ctx context.Context, userID uuid.UUID, date time.Time) (
 	return &v, nil
 }
 
+// Delete borra el check-in del día. Devuelve si borró algo.
+func (s *Service) Delete(ctx context.Context, userID uuid.UUID, date time.Time) (bool, error) {
+	n, err := s.q.DeleteCheckIn(ctx, store.DeleteCheckInParams{UserID: userID, Date: date})
+	if err != nil {
+		return false, err
+	}
+	return n > 0, nil
+}
+
 func (s *Service) List(ctx context.Context, userID uuid.UUID, limit int) ([]CheckIn, error) {
 	rows, err := s.q.ListCheckIns(ctx, store.ListCheckInsParams{UserID: userID, Limit: int32(limit)})
 	if err != nil {

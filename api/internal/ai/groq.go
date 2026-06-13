@@ -178,11 +178,17 @@ type chatStreamChunk struct {
 	} `json:"choices"`
 }
 
+// tcAccum acumula nombre y argumentos fragmentados de un tool call por index.
+type tcAccum struct {
+	name string
+	args strings.Builder
+}
+
 // ChatStream envía el chat con "stream": true (y tools si hay) y re-emite cada
 // delta de texto vía onDelta. Devuelve el texto acumulado y, si el modelo
-// decidió llamar una función, el ToolCall reensamblado (name llega una vez,
-// arguments llega fragmentado). Corte antes de [DONE] → error.
-func (c *GroqClient) ChatStream(ctx context.Context, system string, history []ChatMsg, tools []Tool, onDelta func(string)) (string, *ToolCall, error) {
+// decidió llamar funciones, todos los ToolCall reensamblados ordenados por
+// index. Corte antes de [DONE] → error.
+func (c *GroqClient) ChatStream(ctx context.Context, system string, history []ChatMsg, tools []Tool, onDelta func(string)) (string, []ToolCall, error) {
 	msgs := make([]chatMessage, 0, len(history)+1)
 	msgs = append(msgs, chatMessage{Role: "system", Content: system})
 	for _, m := range history {
@@ -226,8 +232,8 @@ func (c *GroqClient) ChatStream(ctx context.Context, system string, history []Ch
 	}
 
 	var full strings.Builder
-	var tcName string
-	var tcArgs strings.Builder
+	accums := map[int]*tcAccum{}
+	maxIdx := -1
 	sawDone := false
 	scanner := bufio.NewScanner(res.Body)
 	scanner.Buffer(make([]byte, 0, 64*1024), 1024*1024)
@@ -254,14 +260,18 @@ func (c *GroqClient) ChatStream(ctx context.Context, system string, history []Ch
 			onDelta(delta.Content)
 		}
 		for _, tc := range delta.ToolCalls {
-			// Solo la primera function (index 0) cuenta: una acción por turno.
-			if tc.Index != 0 {
-				continue
+			a, ok := accums[tc.Index]
+			if !ok {
+				a = &tcAccum{}
+				accums[tc.Index] = a
+				if tc.Index > maxIdx {
+					maxIdx = tc.Index
+				}
 			}
 			if tc.Function.Name != "" {
-				tcName = tc.Function.Name
+				a.name = tc.Function.Name
 			}
-			tcArgs.WriteString(tc.Function.Arguments)
+			a.args.WriteString(tc.Function.Arguments)
 		}
 	}
 	if err := scanner.Err(); err != nil {
@@ -270,8 +280,14 @@ func (c *GroqClient) ChatStream(ctx context.Context, system string, history []Ch
 	if !sawDone {
 		return "", nil, fmt.Errorf("groq stream cortado antes de [DONE]")
 	}
-	if tcName != "" {
-		return full.String(), &ToolCall{Name: tcName, Arguments: tcArgs.String()}, nil
+	var calls []ToolCall
+	for i := 0; i <= maxIdx; i++ {
+		if a, ok := accums[i]; ok && a.name != "" {
+			calls = append(calls, ToolCall{Name: a.name, Arguments: a.args.String()})
+		}
+	}
+	if len(calls) > 0 {
+		return full.String(), calls, nil
 	}
 	// Una respuesta vacía con [DONE] se trata como fallo a propósito: persistir
 	// un mensaje de asistente vacío no le sirve de nada al usuario.

@@ -9,6 +9,7 @@ import (
 	"github.com/focus365/api/internal/store"
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgtype"
 )
 
 // fakeChatGroq registra lo que recibió y devuelve out/err.
@@ -250,7 +251,7 @@ func (m *memStore) CreatePairWithActions(ctx context.Context, userID uuid.UUID, 
 	out := make([]store.AiAction, 0, len(actions))
 	for i, a := range actions {
 		act := store.AiAction{
-			ID: uuid.New(), MessageID: assistant.ID, UserID: userID,
+			ID: uuid.New(), MessageID: pgtype.UUID{Bytes: assistant.ID, Valid: true}, UserID: userID,
 			Position: int32(i), Kind: a.Kind, Payload: a.Payload, Status: "proposed",
 			CreatedAt: time.Now(),
 		}
@@ -267,7 +268,7 @@ func (m *memStore) ListActionsByMessages(ctx context.Context, messageIDs []uuid.
 	}
 	out := make([]store.AiAction, 0, len(m.actions))
 	for _, a := range m.actions {
-		if want[a.MessageID] {
+		if a.MessageID.Valid && want[uuid.UUID(a.MessageID.Bytes)] {
 			out = append(out, a)
 		}
 	}

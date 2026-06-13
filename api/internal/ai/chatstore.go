@@ -6,6 +6,7 @@ import (
 
 	"github.com/focus365/api/internal/store"
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
@@ -85,7 +86,8 @@ func (s *pgChatStore) CreatePairWithActions(ctx context.Context, userID uuid.UUI
 	rows := make([]store.AiAction, 0, len(actions))
 	for i, a := range actions {
 		row, err := qtx.CreateAction(ctx, store.CreateActionParams{
-			MessageID: assistant.ID, UserID: userID, Position: int32(i),
+			MessageID: pgtype.UUID{Bytes: assistant.ID, Valid: true},
+			UserID: userID, Position: int32(i),
 			Kind: a.Kind, Payload: a.Payload, Status: "proposed",
 		})
 		if err != nil {
@@ -113,4 +115,33 @@ func (s *pgChatStore) SetActionStatusFrom(ctx context.Context, id, userID uuid.U
 	return s.q.SetActionStatusFrom(ctx, store.SetActionStatusFromParams{
 		ID: id, UserID: userID, Status: to, Result: result, Status_2: from,
 	})
+}
+
+// CreateUploadActions persiste N movimientos extraídos de un archivo como
+// acciones source='upload' (sin mensaje de chat), en una transacción.
+func (s *pgChatStore) CreateUploadActions(ctx context.Context, userID uuid.UUID, actions []ProposedAction) ([]store.AiAction, error) {
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return nil, err
+	}
+	defer tx.Rollback(ctx)
+	qtx := s.q.WithTx(tx)
+	rows := make([]store.AiAction, 0, len(actions))
+	for i, a := range actions {
+		row, err := qtx.CreateUploadAction(ctx, store.CreateUploadActionParams{
+			UserID: userID, Position: int32(i), Kind: a.Kind, Payload: a.Payload,
+		})
+		if err != nil {
+			return nil, err
+		}
+		rows = append(rows, row)
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return nil, err
+	}
+	return rows, nil
+}
+
+func (s *pgChatStore) ListPendingUploadActions(ctx context.Context, userID uuid.UUID) ([]store.AiAction, error) {
+	return s.q.ListPendingUploadActions(ctx, userID)
 }

@@ -17,3 +17,13 @@ UPDATE ai_actions
 SET status = $3, result = COALESCE($4, result)
 WHERE id = $1 AND user_id = $2 AND status = $5
 RETURNING *;
+
+-- name: CreateUploadAction :one
+INSERT INTO ai_actions (user_id, position, kind, payload, status, source)
+VALUES ($1, $2, $3, $4, 'proposed', 'upload')
+RETURNING *;
+
+-- name: ListPendingUploadActions :many
+SELECT * FROM ai_actions
+WHERE user_id = $1 AND source = 'upload' AND status = 'proposed'
+ORDER BY created_at, position;

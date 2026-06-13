@@ -8,18 +8,20 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5/pgtype"
 )
 
 type AiAction struct {
-	ID        uuid.UUID `json:"id"`
-	MessageID uuid.UUID `json:"message_id"`
-	UserID    uuid.UUID `json:"user_id"`
-	Position  int32     `json:"position"`
-	Kind      string    `json:"kind"`
-	Payload   []byte    `json:"payload"`
-	Status    string    `json:"status"`
-	Result    []byte    `json:"result"`
-	CreatedAt time.Time `json:"created_at"`
+	ID        uuid.UUID   `json:"id"`
+	MessageID pgtype.UUID `json:"message_id"`
+	UserID    uuid.UUID   `json:"user_id"`
+	Position  int32       `json:"position"`
+	Kind      string      `json:"kind"`
+	Payload   []byte      `json:"payload"`
+	Status    string      `json:"status"`
+	Result    []byte      `json:"result"`
+	CreatedAt time.Time   `json:"created_at"`
+	Source    string      `json:"source"`
 }
 
 type AiInsight struct {

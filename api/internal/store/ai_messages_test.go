@@ -9,6 +9,7 @@ import (
 	"github.com/focus365/api/internal/testutil"
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgtype"
 )
 
 func TestCreateAndListMessages(t *testing.T) {
@@ -91,7 +92,8 @@ func TestAiActionRoundTrip(t *testing.T) {
 	msg := createAssistantMsg(t, q, ctx, u.ID)
 
 	a, err := q.CreateAction(ctx, store.CreateActionParams{
-		MessageID: msg.ID, UserID: u.ID, Position: 0, Kind: "checkin",
+		MessageID: pgtype.UUID{Bytes: msg.ID, Valid: true},
+		UserID: u.ID, Position: 0, Kind: "checkin",
 		Payload: []byte(`{"mood":8,"energy":6,"discipline":9}`), Status: "proposed",
 	})
 	if err != nil {
@@ -175,11 +177,50 @@ func TestAiActionAllKinds(t *testing.T) {
 		"habito_nuevo", "meta_nueva", "entrenamiento",
 	} {
 		if _, err := q.CreateAction(ctx, store.CreateActionParams{
-			MessageID: msg.ID, UserID: u.ID, Position: int32(i),
+			MessageID: pgtype.UUID{Bytes: msg.ID, Valid: true},
+			UserID: u.ID, Position: int32(i),
 			Kind: kind, Payload: []byte(`{}`), Status: "proposed",
 		}); err != nil {
 			t.Errorf("kind %s rechazado por el CHECK: %v", kind, err)
 		}
+	}
+}
+
+func TestUploadActionRoundTrip(t *testing.T) {
+	pool := testutil.NewDB(t)
+	q := store.New(pool)
+	ctx := context.Background()
+	u, err := q.CreateUser(ctx, store.CreateUserParams{Email: "upl@b.com", PasswordHash: "h", Name: "U"})
+	if err != nil {
+		t.Fatalf("CreateUser: %v", err)
+	}
+
+	a, err := q.CreateUploadAction(ctx, store.CreateUploadActionParams{
+		UserID: u.ID, Position: 0, Kind: "movimiento",
+		Payload: []byte(`{"type":"expense","amount_centavos":25000,"category":"comida"}`),
+	})
+	if err != nil {
+		t.Fatalf("CreateUploadAction: %v", err)
+	}
+	if a.Source != "upload" || a.Status != "proposed" || a.MessageID.Valid {
+		t.Errorf("acción upload mal creada: %+v", a)
+	}
+
+	pend, err := q.ListPendingUploadActions(ctx, u.ID)
+	if err != nil {
+		t.Fatalf("ListPending: %v", err)
+	}
+	if len(pend) != 1 || pend[0].ID != a.ID {
+		t.Errorf("pending = %+v", pend)
+	}
+
+	// No aparece en el historial del chat (filtra por message_id).
+	msgs, err := q.ListActionsByMessages(ctx, []uuid.UUID{a.ID})
+	if err != nil {
+		t.Fatalf("ListByMessages: %v", err)
+	}
+	if len(msgs) != 0 {
+		t.Errorf("la acción upload no debe aparecer por message id: %+v", msgs)
 	}
 }
 

@@ -120,4 +120,25 @@ func TestAiMessageActionRoundTrip(t *testing.T) {
 	}
 }
 
+func TestAiMessageNewActionKinds(t *testing.T) {
+	pool := testutil.NewDB(t)
+	q := store.New(pool)
+	ctx := context.Background()
+	u, err := q.CreateUser(ctx, store.CreateUserParams{
+		Email: "kinds-rt@b.com", PasswordHash: "h", Name: "Ada",
+	})
+	if err != nil {
+		t.Fatalf("CreateUser: %v", err)
+	}
+	for _, kind := range []string{"habito_nuevo", "meta_nueva", "entrenamiento"} {
+		k := kind
+		if _, err := q.CreateMessageWithAction(ctx, store.CreateMessageWithActionParams{
+			UserID: u.ID, Role: "assistant", Content: "x",
+			ActionKind: &k, ActionPayload: []byte(`{}`), ActionStatus: ptr("proposed"),
+		}); err != nil {
+			t.Errorf("kind %s rechazado por el CHECK: %v", kind, err)
+		}
+	}
+}
+
 func ptr(s string) *string { return &s }

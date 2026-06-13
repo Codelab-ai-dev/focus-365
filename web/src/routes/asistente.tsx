@@ -2,7 +2,7 @@ import { createFileRoute, useNavigate, Link } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useAuth } from "@/lib/auth";
-import { getMessages, sendMessageStream, confirmAction, cancelAction, type Message } from "@/lib/ai";
+import { getMessages, sendMessageStream, confirmAction, cancelAction, undoAction, type Message, type Action } from "@/lib/ai";
 import { Button } from "@/ui/Button";
 import { Input } from "@/ui/Input";
 import { Chip } from "@/ui/Chip";
@@ -20,7 +20,7 @@ const ACTION_TITLES: Record<string, string> = {
   entrenamiento: "Entrenamiento",
 };
 
-function actionDetails(action: NonNullable<Message["action"]>): string {
+function actionDetails(action: Action): string {
   const p = action.payload as Record<string, unknown>;
   switch (action.kind) {
     case "checkin":
@@ -48,15 +48,14 @@ function actionDetails(action: NonNullable<Message["action"]>): string {
 }
 
 function ActionCard({
-  message,
+  action,
   pending,
   onResolve,
 }: {
-  message: Message;
+  action: Action;
   pending: boolean;
-  onResolve: (id: string, verb: "confirm" | "cancel") => void;
+  onResolve: (id: string, verb: "confirm" | "cancel" | "undo") => void;
 }) {
-  const action = message.action!;
   return (
     <div className="mt-2 rounded-lg border-2 border-ink bg-bg p-3 text-sm shadow-brutal-sm">
       <p className="font-display font-bold">{ACTION_TITLES[action.kind] ?? "Acción"}</p>
@@ -64,7 +63,7 @@ function ActionCard({
       {action.status === "proposed" && (
         <div className="mt-2 flex gap-2">
           <Button
-            onClick={() => onResolve(message.id, "confirm")}
+            onClick={() => onResolve(action.id, "confirm")}
             disabled={pending}
             className="px-3 py-1 text-xs"
           >
@@ -72,7 +71,7 @@ function ActionCard({
           </Button>
           <Button
             variant="ghost"
-            onClick={() => onResolve(message.id, "cancel")}
+            onClick={() => onResolve(action.id, "cancel")}
             disabled={pending}
             className="px-3 py-1 text-xs"
           >
@@ -81,11 +80,20 @@ function ActionCard({
         </div>
       )}
       {action.status === "done" && (
-        <div className="mt-2">
+        <div className="mt-2 flex items-center gap-2">
           <Chip variant="money" size="sm">✓ Hecha</Chip>
+          <Button
+            variant="ghost"
+            onClick={() => onResolve(action.id, "undo")}
+            disabled={pending}
+            className="px-3 py-1 text-xs"
+          >
+            Deshacer
+          </Button>
         </div>
       )}
       {action.status === "cancelled" && <p className="mt-2 text-xs text-muted">Cancelada</p>}
+      {action.status === "undone" && <p className="mt-2 text-xs text-muted">Deshecha</p>}
     </div>
   );
 }
@@ -110,12 +118,16 @@ function AsistentePage() {
   const [streaming, setStreaming] = useState<{ question: string; partial: string } | null>(null);
 
   const actionMutation = useMutation({
-    mutationFn: ({ id, verb }: { id: string; verb: "confirm" | "cancel" }) =>
-      verb === "confirm" ? confirmAction(id) : cancelAction(id),
+    mutationFn: ({ id, verb }: { id: string; verb: "confirm" | "cancel" | "undo" }) =>
+      verb === "confirm" ? confirmAction(id) : verb === "cancel" ? cancelAction(id) : undoAction(id),
     onSuccess: (updated) => {
       setError(null);
       qc.setQueryData<Message[]>(["ai-messages"], (prev) =>
-        (prev ?? []).map((m) => (m.id === updated.id ? updated : m))
+        (prev ?? []).map((m) =>
+          m.actions?.some((a) => a.id === updated.id)
+            ? { ...m, actions: m.actions.map((a) => (a.id === updated.id ? updated : a)) }
+            : m
+        )
       );
     },
     onError: (err) =>
@@ -176,13 +188,15 @@ function AsistentePage() {
                 }
               >
                 {m.content}
-                {m.role === "assistant" && m.action && (
-                  <ActionCard
-                    message={m}
-                    pending={actionMutation.isPending && actionMutation.variables?.id === m.id}
-                    onResolve={(id, verb) => actionMutation.mutate({ id, verb })}
-                  />
-                )}
+                {m.role === "assistant" &&
+                  m.actions?.map((a) => (
+                    <ActionCard
+                      key={a.id}
+                      action={a}
+                      pending={actionMutation.isPending && actionMutation.variables?.id === a.id}
+                      onResolve={(id, verb) => actionMutation.mutate({ id, verb })}
+                    />
+                  ))}
               </div>
             ))
           )}

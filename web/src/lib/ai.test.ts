@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, afterEach } from "vitest";
-import { getInsight, getMessages, sendMessage, sendMessageStream, confirmAction, cancelAction, type Insight, type Message } from "./ai";
+import { getInsight, getMessages, sendMessage, sendMessageStream, confirmAction, cancelAction, undoAction, type Insight, type Message, type Action } from "./ai";
 import { ApiError } from "./api";
 
 function okJson(data: unknown) {
@@ -170,40 +170,53 @@ describe("sendMessageStream", () => {
   });
 });
 
-describe("confirmAction / cancelAction", () => {
+describe("confirmAction / cancelAction / undoAction", () => {
   afterEach(() => vi.restoreAllMocks());
 
-  const done: Message = {
-    id: "m1",
-    role: "assistant",
-    content: "Propongo registrar tu check-in.",
-    action: { kind: "checkin", payload: { mood: 8, energy: 6, discipline: 9 }, status: "done" },
-    created_at: "2026-06-11T10:00:02Z",
+  const done: Action = {
+    id: "a1",
+    kind: "checkin",
+    payload: { mood: 8, energy: 6, discipline: 9 },
+    status: "done",
   };
 
-  it("confirmAction hace POST al endpoint y devuelve el mensaje", async () => {
+  it("confirmAction hace POST al endpoint y devuelve la acción", async () => {
     const fetchMock = vi.fn((_url: string, _opts?: RequestInit) =>
-      Promise.resolve(new Response(JSON.stringify({ message: done }), { status: 200 }))
+      Promise.resolve(new Response(JSON.stringify({ action: done }), { status: 200 }))
     );
     vi.stubGlobal("fetch", fetchMock);
 
-    const got = await confirmAction("m1");
+    const got = await confirmAction("a1");
     expect(got).toEqual(done);
     const [url, opts] = fetchMock.mock.calls[0];
-    expect(url).toBe("/api/v1/ai/actions/m1/confirm");
+    expect(url).toBe("/api/v1/ai/actions/a1/confirm");
     expect(opts?.method).toBe("POST");
   });
 
   it("cancelAction hace POST al endpoint de cancelar", async () => {
-    const cancelled = { ...done, action: { ...done.action!, status: "cancelled" as const } };
+    const cancelled: Action = { ...done, status: "cancelled" };
     const fetchMock = vi.fn((_url: string, _opts?: RequestInit) =>
-      Promise.resolve(new Response(JSON.stringify({ message: cancelled }), { status: 200 }))
+      Promise.resolve(new Response(JSON.stringify({ action: cancelled }), { status: 200 }))
     );
     vi.stubGlobal("fetch", fetchMock);
 
-    const got = await cancelAction("m1");
-    expect(got.action?.status).toBe("cancelled");
-    expect(fetchMock.mock.calls[0][0]).toBe("/api/v1/ai/actions/m1/cancel");
+    const got = await cancelAction("a1");
+    expect(got.status).toBe("cancelled");
+    expect(fetchMock.mock.calls[0][0]).toBe("/api/v1/ai/actions/a1/cancel");
+  });
+
+  it("undoAction hace POST al endpoint de deshacer y devuelve la acción undone", async () => {
+    const undone: Action = { ...done, status: "undone" };
+    const fetchMock = vi.fn((_url: string, _opts?: RequestInit) =>
+      Promise.resolve(new Response(JSON.stringify({ action: undone }), { status: 200 }))
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const got = await undoAction("a1");
+    expect(got.status).toBe("undone");
+    const [url, opts] = fetchMock.mock.calls[0];
+    expect(url).toBe("/api/v1/ai/actions/a1/undo");
+    expect(opts?.method).toBe("POST");
   });
 
   it("confirmAction propaga el error del backend (409)", async () => {

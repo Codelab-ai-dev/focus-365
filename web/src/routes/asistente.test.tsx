@@ -71,7 +71,9 @@ function proposedMessages() {
         id: "m1",
         role: "assistant",
         content: "Propongo registrar tu check-in de hoy: ánimo 8, energía 6, disciplina 9.",
-        action: { kind: "checkin", payload: { mood: 8, energy: 6, discipline: 9 }, status: "proposed" },
+        actions: [
+          { id: "a1", kind: "checkin", payload: { mood: 8, energy: 6, discipline: 9 }, status: "proposed" },
+        ],
         created_at: "2026-06-11T10:00:01Z",
       },
     ],
@@ -80,10 +82,9 @@ function proposedMessages() {
 
 it("una acción proposed muestra botones y confirmar la pasa a hecha", async () => {
   const fetchMock = vi.fn((url: string, opts?: RequestInit) => {
-    if (url === "/api/v1/ai/actions/m1/confirm" && opts?.method === "POST") {
-      const done = proposedMessages().messages[1];
-      done.action!.status = "done";
-      return Promise.resolve(new Response(JSON.stringify({ message: done }), { status: 200 }));
+    if (url === "/api/v1/ai/actions/a1/confirm" && opts?.method === "POST") {
+      const action = { id: "a1", kind: "checkin", payload: { mood: 8, energy: 6, discipline: 9 }, status: "done" };
+      return Promise.resolve(new Response(JSON.stringify({ action }), { status: 200 }));
     }
     return Promise.resolve(new Response(JSON.stringify(proposedMessages()), { status: 200 }));
   });
@@ -101,10 +102,9 @@ it("una acción proposed muestra botones y confirmar la pasa a hecha", async () 
 
 it("cancelar deja la tarjeta como cancelada sin ejecutar", async () => {
   const fetchMock = vi.fn((url: string, opts?: RequestInit) => {
-    if (url === "/api/v1/ai/actions/m1/cancel" && opts?.method === "POST") {
-      const cancelled = proposedMessages().messages[1];
-      cancelled.action!.status = "cancelled";
-      return Promise.resolve(new Response(JSON.stringify({ message: cancelled }), { status: 200 }));
+    if (url === "/api/v1/ai/actions/a1/cancel" && opts?.method === "POST") {
+      const action = { id: "a1", kind: "checkin", payload: { mood: 8, energy: 6, discipline: 9 }, status: "cancelled" };
+      return Promise.resolve(new Response(JSON.stringify({ action }), { status: 200 }));
     }
     return Promise.resolve(new Response(JSON.stringify(proposedMessages()), { status: 200 }));
   });
@@ -116,6 +116,74 @@ it("cancelar deja la tarjeta como cancelada sin ejecutar", async () => {
   expect(await screen.findByText(/Cancelada/)).toBeInTheDocument();
   const confirmCalls = fetchMock.mock.calls.filter(([u]) => String(u).includes("/confirm"));
   expect(confirmCalls).toHaveLength(0);
+});
+
+it("un mensaje con dos acciones muestra dos tarjetas independientes", async () => {
+  const twoActions = {
+    messages: [
+      {
+        id: "m1",
+        role: "assistant",
+        content: "Propongo dos cosas.",
+        actions: [
+          { id: "a1", kind: "checkin", payload: { mood: 8, energy: 6, discipline: 9 }, status: "proposed" },
+          { id: "a2", kind: "habito", payload: { habit_id: "h1" }, status: "proposed" },
+        ],
+        created_at: "2026-06-12T10:00:01Z",
+      },
+    ],
+  };
+  const fetchMock = vi.fn((url: string, opts?: RequestInit) => {
+    if (url === "/api/v1/ai/actions/a1/confirm" && opts?.method === "POST") {
+      const action = { id: "a1", kind: "checkin", payload: { mood: 8, energy: 6, discipline: 9 }, status: "done" };
+      return Promise.resolve(new Response(JSON.stringify({ action }), { status: 200 }));
+    }
+    return Promise.resolve(new Response(JSON.stringify(twoActions), { status: 200 }));
+  });
+  vi.stubGlobal("fetch", fetchMock);
+
+  renderPage();
+  // Dos tarjetas: dos botones Confirmar al inicio.
+  await waitFor(() => {
+    expect(screen.getAllByRole("button", { name: "Confirmar" })).toHaveLength(2);
+  });
+
+  // Confirmar la primera.
+  await userEvent.click(screen.getAllByRole("button", { name: "Confirmar" })[0]);
+
+  // La primera pasa a Hecha, la segunda sigue con botones.
+  expect(await screen.findByText(/Hecha/)).toBeInTheDocument();
+  expect(screen.getAllByRole("button", { name: "Confirmar" })).toHaveLength(1);
+});
+
+it("una tarjeta done se puede deshacer y queda Deshecha", async () => {
+  const doneMessages = {
+    messages: [
+      {
+        id: "m1",
+        role: "assistant",
+        content: "Hecho.",
+        actions: [
+          { id: "a1", kind: "checkin", payload: { mood: 8, energy: 6, discipline: 9 }, status: "done" },
+        ],
+        created_at: "2026-06-12T10:00:01Z",
+      },
+    ],
+  };
+  const fetchMock = vi.fn((url: string, opts?: RequestInit) => {
+    if (url === "/api/v1/ai/actions/a1/undo" && opts?.method === "POST") {
+      const action = { id: "a1", kind: "checkin", payload: { mood: 8, energy: 6, discipline: 9 }, status: "undone" };
+      return Promise.resolve(new Response(JSON.stringify({ action }), { status: 200 }));
+    }
+    return Promise.resolve(new Response(JSON.stringify(doneMessages), { status: 200 }));
+  });
+  vi.stubGlobal("fetch", fetchMock);
+
+  renderPage();
+  await userEvent.click(await screen.findByRole("button", { name: "Deshacer" }));
+
+  expect(await screen.findByText(/Deshecha/)).toBeInTheDocument();
+  expect(screen.queryByRole("button", { name: "Deshacer" })).toBeNull();
 });
 
 it("mensajes sin acción no muestran tarjeta ni botones", async () => {
@@ -151,17 +219,20 @@ it("la tarjeta de entrenamiento muestra tipo y series", async () => {
                 id: "w1",
                 role: "assistant",
                 content: "Propongo registrar un entrenamiento.",
-                action: {
-                  kind: "entrenamiento",
-                  payload: {
-                    type: "fuerza",
-                    sets: [
-                      { exercise: "press banca", reps: 8, weight_kg: 60 },
-                      { exercise: "plancha" },
-                    ],
+                actions: [
+                  {
+                    id: "a1",
+                    kind: "entrenamiento",
+                    payload: {
+                      type: "fuerza",
+                      sets: [
+                        { exercise: "press banca", reps: 8, weight_kg: 60 },
+                        { exercise: "plancha" },
+                      ],
+                    },
+                    status: "proposed",
                   },
-                  status: "proposed",
-                },
+                ],
                 created_at: "2026-06-12T10:00:01Z",
               },
             ],
@@ -187,12 +258,12 @@ it("la tarjeta de hábito nuevo y meta nueva muestran sus datos", async () => {
             messages: [
               {
                 id: "h1", role: "assistant", content: "x",
-                action: { kind: "habito_nuevo", payload: { name: "Leer 30 min", target_days: 21 }, status: "proposed" },
+                actions: [{ id: "a1", kind: "habito_nuevo", payload: { name: "Leer 30 min", target_days: 21 }, status: "proposed" }],
                 created_at: "2026-06-12T10:00:01Z",
               },
               {
                 id: "g1", role: "assistant", content: "y",
-                action: { kind: "meta_nueva", payload: { title: "Ahorrar 50k", dimension: "finanzas", deadline: "2026-12-01" }, status: "proposed" },
+                actions: [{ id: "a2", kind: "meta_nueva", payload: { title: "Ahorrar 50k", dimension: "finanzas", deadline: "2026-12-01" }, status: "proposed" }],
                 created_at: "2026-06-12T10:00:02Z",
               },
             ],

@@ -12,16 +12,17 @@ export function getInsight(): Promise<Insight> {
 }
 
 export type Action = {
+  id: string;
   kind: string;
   payload: Record<string, unknown>;
-  status: "proposed" | "done" | "cancelled";
+  status: "proposed" | "done" | "cancelled" | "undone";
 };
 
 export type Message = {
   id: string;
   role: string;
   content: string;
-  action?: Action;
+  actions?: Action[];
   created_at: string;
 };
 
@@ -38,16 +39,22 @@ export function sendMessage(message: string): Promise<Message> {
   }).then((r) => r.reply);
 }
 
-export function confirmAction(id: string): Promise<Message> {
-  return apiFetch<{ message: Message }>(`/api/v1/ai/actions/${id}/confirm`, {
+export function confirmAction(id: string): Promise<Action> {
+  return apiFetch<{ action: Action }>(`/api/v1/ai/actions/${id}/confirm`, {
     method: "POST",
-  }).then((r) => r.message);
+  }).then((r) => r.action);
 }
 
-export function cancelAction(id: string): Promise<Message> {
-  return apiFetch<{ message: Message }>(`/api/v1/ai/actions/${id}/cancel`, {
+export function cancelAction(id: string): Promise<Action> {
+  return apiFetch<{ action: Action }>(`/api/v1/ai/actions/${id}/cancel`, {
     method: "POST",
-  }).then((r) => r.message);
+  }).then((r) => r.action);
+}
+
+export function undoAction(id: string): Promise<Action> {
+  return apiFetch<{ action: Action }>(`/api/v1/ai/actions/${id}/undo`, {
+    method: "POST",
+  }).then((r) => r.action);
 }
 
 // sendMessageStream envía el mensaje al endpoint SSE y entrega los deltas vía

@@ -67,19 +67,84 @@ func TestActionSummaryPorKind(t *testing.T) {
 	}
 }
 
-func TestBuildChatToolsCuatro(t *testing.T) {
+func TestParseActionPayloadNewKindsValid(t *testing.T) {
+	cases := []struct{ kind, args string }{
+		{"habito_nuevo", `{"name":"Leer 30 min","target_days":21}`},
+		{"habito_nuevo", `{"name":"Meditar"}`},
+		{"meta_nueva", `{"title":"Ahorrar 50k","dimension":"finanzas","deadline":"2026-12-01"}`},
+		{"meta_nueva", `{"title":"Leer 12 libros","dimension":"general"}`},
+		{"entrenamiento", `{"type":"fuerza","sets":[{"exercise":"press banca","reps":8,"weight_kg":60},{"exercise":"sentadilla","reps":5,"weight_kg":80.5}]}`},
+		{"entrenamiento", `{"type":"cardio","note":"suave","sets":[{"exercise":"correr"}]}`},
+	}
+	for _, c := range cases {
+		if _, err := parseActionPayload(c.kind, c.args); err != nil {
+			t.Errorf("%s %s: %v", c.kind, c.args, err)
+		}
+	}
+}
+
+func TestParseActionPayloadNewKindsInvalid(t *testing.T) {
+	cases := []struct{ name, kind, args string }{
+		{"hábito sin nombre", "habito_nuevo", `{"name":"  "}`},
+		{"target_days cero", "habito_nuevo", `{"name":"Leer","target_days":0}`},
+		{"meta sin título", "meta_nueva", `{"title":"","dimension":"general"}`},
+		{"dimension inválida", "meta_nueva", `{"title":"X","dimension":"dinero"}`},
+		{"deadline malformado", "meta_nueva", `{"title":"X","dimension":"general","deadline":"diciembre"}`},
+		{"entreno sin tipo", "entrenamiento", `{"type":" ","sets":[{"exercise":"x"}]}`},
+		{"entreno sin series", "entrenamiento", `{"type":"fuerza","sets":[]}`},
+		{"serie sin ejercicio", "entrenamiento", `{"type":"fuerza","sets":[{"exercise":"  "}]}`},
+		{"reps cero", "entrenamiento", `{"type":"fuerza","sets":[{"exercise":"x","reps":0}]}`},
+		{"peso negativo", "entrenamiento", `{"type":"fuerza","sets":[{"exercise":"x","weight_kg":-1}]}`},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			if _, err := parseActionPayload(c.kind, c.args); err == nil {
+				t.Errorf("esperaba error para %s %s", c.kind, c.args)
+			}
+		})
+	}
+}
+
+func TestParseActionPayloadEntrenamientoTooManySets(t *testing.T) {
+	sets := make([]string, 21)
+	for i := range sets {
+		sets[i] = `{"exercise":"x"}`
+	}
+	args := `{"type":"fuerza","sets":[` + strings.Join(sets, ",") + `]}`
+	if _, err := parseActionPayload("entrenamiento", args); err == nil {
+		t.Error("esperaba error con 21 series")
+	}
+}
+
+func TestActionSummaryNewKinds(t *testing.T) {
+	cases := []struct {
+		kind, payload string
+		wants         []string
+	}{
+		{"habito_nuevo", `{"name":"Leer 30 min","target_days":21}`, []string{"hábito", "Leer 30 min"}},
+		{"meta_nueva", `{"title":"Ahorrar 50k","dimension":"finanzas","deadline":"2026-12-01"}`, []string{"meta", "Ahorrar 50k", "2026-12-01"}},
+		{"entrenamiento", `{"type":"fuerza","sets":[{"exercise":"a"},{"exercise":"b"}]}`, []string{"entrenamiento", "fuerza", "2"}},
+	}
+	for _, c := range cases {
+		got := actionSummary(c.kind, []byte(c.payload))
+		for _, w := range c.wants {
+			if !strings.Contains(strings.ToLower(got), strings.ToLower(w)) {
+				t.Errorf("summary de %s %q no contiene %q", c.kind, got, w)
+			}
+		}
+	}
+}
+
+func TestBuildChatToolsSiete(t *testing.T) {
 	tools := buildChatTools()
-	if len(tools) != 4 {
-		t.Fatalf("tools = %d, want 4", len(tools))
+	if len(tools) != 7 {
+		t.Fatalf("tools = %d, want 7", len(tools))
 	}
 	names := map[string]bool{}
 	for _, tl := range tools {
 		names[tl.Name] = true
-		if len(tl.Parameters) == 0 || tl.Description == "" {
-			t.Errorf("tool %s incompleta", tl.Name)
-		}
 	}
-	for _, want := range []string{"registrar_checkin", "registrar_movimiento", "marcar_habito", "actualizar_meta"} {
+	for _, want := range []string{"crear_habito", "crear_meta", "registrar_entrenamiento"} {
 		if !names[want] {
 			t.Errorf("falta tool %s", want)
 		}

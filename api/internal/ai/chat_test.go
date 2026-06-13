@@ -289,8 +289,8 @@ func TestChatSendStreamToolCallPersistsProposal(t *testing.T) {
 	if msg.Content == "" {
 		t.Error("el contenido no debe quedar vacío (resumen generado)")
 	}
-	if len(groq.lastTools) != 4 {
-		t.Errorf("tools enviadas = %d, want 4", len(groq.lastTools))
+	if len(groq.lastTools) != 7 {
+		t.Errorf("tools enviadas = %d, want 7", len(groq.lastTools))
 	}
 	if len(st.rows) != 2 || st.rows[1].ActionKind == nil {
 		t.Errorf("persistencia = %+v", st.rows)

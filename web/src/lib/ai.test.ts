@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, afterEach } from "vitest";
-import { getInsight, getMessages, sendMessage, sendMessageStream, confirmAction, cancelAction, undoAction, type Insight, type Message, type Action } from "./ai";
+import { getInsight, getMessages, sendMessage, sendMessageStream, confirmAction, cancelAction, undoAction, importFile, getPendingUploads, type Insight, type Message, type Action } from "./ai";
 import { ApiError } from "./api";
 
 function okJson(data: unknown) {
@@ -229,5 +229,62 @@ describe("confirmAction / cancelAction / undoAction", () => {
       )
     );
     await expect(confirmAction("m1")).rejects.toThrowError("la acción ya fue resuelta");
+  });
+});
+
+describe("importFile", () => {
+  afterEach(() => vi.restoreAllMocks());
+
+  it("hace POST multipart a /api/v1/ai/import y devuelve {created, dropped, truncated}", async () => {
+    const created: Action[] = [
+      { id: "a1", kind: "movimiento", payload: { type: "expense", amount_centavos: 12500, category: "comida" }, status: "proposed" },
+    ];
+    const fetchMock = vi.fn((_url: string, _opts?: RequestInit) =>
+      okJson({ created, dropped: 0, truncated: false })
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const file = new File(["x,y\n1,2\n"], "ticket.csv", { type: "text/csv" });
+    const got = await importFile(file);
+    expect(got).toEqual({ created, dropped: 0, truncated: false });
+
+    const [url, opts] = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
+    expect(url).toBe("/api/v1/ai/import");
+    expect(opts.method).toBe("POST");
+    expect(opts.body).toBeInstanceOf(FormData);
+  });
+
+  it("propaga 422 como ApiError con el mensaje del backend", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(() =>
+        Promise.resolve(
+          new Response(JSON.stringify({ error: "no se pudo leer el archivo" }), { status: 422 })
+        )
+      )
+    );
+    const file = new File(["x"], "raro.pdf", { type: "application/pdf" });
+    const p = importFile(file);
+    await expect(p).rejects.toBeInstanceOf(ApiError);
+    await expect(importFile(file)).rejects.toThrowError("no se pudo leer el archivo");
+  });
+});
+
+describe("getPendingUploads", () => {
+  afterEach(() => vi.restoreAllMocks());
+
+  it("hace GET a /api/v1/ai/import/pending y devuelve el array", async () => {
+    const actions: Action[] = [
+      { id: "a1", kind: "movimiento", payload: { type: "expense", amount_centavos: 12500, category: "comida" }, status: "proposed" },
+      { id: "a2", kind: "movimiento", payload: { type: "income", amount_centavos: 50000, category: "sueldo" }, status: "proposed" },
+    ];
+    const fetchMock = vi.fn((_url: string, _opts?: RequestInit) => okJson({ actions }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const got = await getPendingUploads();
+    expect(got).toEqual(actions);
+    expect(fetchMock.mock.calls[0][0]).toBe("/api/v1/ai/import/pending");
+    const opts = fetchMock.mock.calls[0][1];
+    expect(opts?.method ?? "GET").toBe("GET");
   });
 });

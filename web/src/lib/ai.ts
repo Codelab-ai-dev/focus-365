@@ -39,6 +39,39 @@ export function sendMessage(message: string): Promise<Message> {
   }).then((r) => r.reply);
 }
 
+export type ImportResult = { created: Action[]; dropped: number; truncated: boolean };
+
+export async function importFile(file: File): Promise<ImportResult> {
+  const headers: Record<string, string> = {};
+  const token = getAccessToken();
+  if (token) headers["Authorization"] = `Bearer ${token}`;
+  const form = new FormData();
+  form.append("file", file);
+  const res = await fetch("/api/v1/ai/import", {
+    method: "POST",
+    headers,
+    body: form,
+    credentials: "include",
+  });
+  if (!res.ok) {
+    let msg = `Error ${res.status}`;
+    try {
+      const b = await res.json();
+      if (b?.error) msg = b.error;
+    } catch {
+      /* respuesta sin JSON */
+    }
+    throw new ApiError(msg, res.status);
+  }
+  return (await res.json()) as ImportResult;
+}
+
+export function getPendingUploads(): Promise<Action[]> {
+  return apiFetch<{ actions: Action[] }>("/api/v1/ai/import/pending").then(
+    (r) => r.actions
+  );
+}
+
 export function confirmAction(id: string): Promise<Action> {
   return apiFetch<{ action: Action }>(`/api/v1/ai/actions/${id}/confirm`, {
     method: "POST",

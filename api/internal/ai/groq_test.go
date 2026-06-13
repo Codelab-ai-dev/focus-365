@@ -20,7 +20,7 @@ func TestGroqCompleteOK(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	c := newGroqClient(srv.URL, "test-key", "llama-3.3-70b-versatile")
+	c := newGroqClient(srv.URL, "test-key", "llama-3.3-70b-versatile", "vision-model")
 	got, err := c.Complete(context.Background(), "sys", "usr")
 	if err != nil {
 		t.Fatalf("Complete: %v", err)
@@ -37,7 +37,7 @@ func TestGroqCompleteHTTPError(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	c := newGroqClient(srv.URL, "k", "m")
+	c := newGroqClient(srv.URL, "k", "m", "vm")
 	if _, err := c.Complete(context.Background(), "s", "u"); err == nil {
 		t.Fatal("esperaba error en HTTP 500")
 	}
@@ -49,7 +49,7 @@ func TestGroqCompleteNoChoices(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	c := newGroqClient(srv.URL, "k", "m")
+	c := newGroqClient(srv.URL, "k", "m", "vm")
 	if _, err := c.Complete(context.Background(), "s", "u"); err == nil {
 		t.Fatal("esperaba error sin choices")
 	}
@@ -61,7 +61,7 @@ func TestGroqCompleteInvalidBody(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	c := newGroqClient(srv.URL, "k", "m")
+	c := newGroqClient(srv.URL, "k", "m", "vm")
 	if _, err := c.Complete(context.Background(), "s", "u"); err == nil {
 		t.Fatal("esperaba error con body inválido")
 	}
@@ -79,7 +79,7 @@ func TestGroqChatOK(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	c := newGroqClient(srv.URL, "test-key", "llama-3.3-70b-versatile")
+	c := newGroqClient(srv.URL, "test-key", "llama-3.3-70b-versatile", "vision-model")
 	got, err := c.Chat(context.Background(), "sys", []ChatMsg{
 		{Role: "user", Content: "hola"},
 		{Role: "assistant", Content: "qué tal"},
@@ -107,7 +107,7 @@ func TestGroqChatHTTPError(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	c := newGroqClient(srv.URL, "k", "m")
+	c := newGroqClient(srv.URL, "k", "m", "vm")
 	if _, err := c.Chat(context.Background(), "s", []ChatMsg{{Role: "user", Content: "x"}}); err == nil {
 		t.Fatal("esperaba error en HTTP 500")
 	}
@@ -132,7 +132,7 @@ func TestGroqChatStreamOK(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	c := newGroqClient(srv.URL, "test-key", "llama-3.3-70b-versatile")
+	c := newGroqClient(srv.URL, "test-key", "llama-3.3-70b-versatile", "vision-model")
 	var deltas []string
 	got, tcs, err := c.ChatStream(context.Background(), "sys", []ChatMsg{
 		{Role: "user", Content: "¿cómo voy?"},
@@ -165,7 +165,7 @@ func TestGroqChatStreamCutMidwayFails(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	c := newGroqClient(srv.URL, "k", "m")
+	c := newGroqClient(srv.URL, "k", "m", "vm")
 	var deltas []string
 	_, _, err := c.ChatStream(context.Background(), "s", []ChatMsg{{Role: "user", Content: "x"}},
 		nil, func(d string) { deltas = append(deltas, d) })
@@ -182,7 +182,7 @@ func TestGroqChatStreamHTTPError(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	c := newGroqClient(srv.URL, "k", "m")
+	c := newGroqClient(srv.URL, "k", "m", "vm")
 	if _, _, err := c.ChatStream(context.Background(), "s", []ChatMsg{{Role: "user", Content: "x"}},
 		nil, func(string) {}); err == nil {
 		t.Fatal("esperaba error en HTTP 500")
@@ -202,7 +202,7 @@ func TestGroqChatStreamToolCall(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	c := newGroqClient(srv.URL, "k", "m")
+	c := newGroqClient(srv.URL, "k", "m", "vm")
 	tools := []Tool{{Name: "registrar_checkin", Description: "d", Parameters: json.RawMessage(`{"type":"object"}`)}}
 	text, tcs, err := c.ChatStream(context.Background(), "sys", []ChatMsg{{Role: "user", Content: "registra"}}, tools, func(string) {})
 	if err != nil {
@@ -230,7 +230,7 @@ func TestGroqChatStreamTextWithToolsReturnsNilToolCall(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	c := newGroqClient(srv.URL, "k", "m")
+	c := newGroqClient(srv.URL, "k", "m", "vm")
 	text, tcs, err := c.ChatStream(context.Background(), "s", []ChatMsg{{Role: "user", Content: "hola"}},
 		[]Tool{{Name: "x", Description: "d", Parameters: json.RawMessage(`{}`)}}, func(string) {})
 	if err != nil {
@@ -252,7 +252,7 @@ func TestGroqChatStreamMultipleToolCallsAll(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	c := newGroqClient(srv.URL, "k", "m")
+	c := newGroqClient(srv.URL, "k", "m", "vm")
 	_, tcs, err := c.ChatStream(context.Background(), "s", []ChatMsg{{Role: "user", Content: "x"}}, nil, func(string) {})
 	if err != nil {
 		t.Fatalf("ChatStream: %v", err)
@@ -278,7 +278,7 @@ func TestGroqChatStreamNoToolsOmitsField(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	c := newGroqClient(srv.URL, "k", "m")
+	c := newGroqClient(srv.URL, "k", "m", "vm")
 	if _, _, err := c.ChatStream(context.Background(), "s", []ChatMsg{{Role: "user", Content: "x"}}, nil, func(string) {}); err != nil {
 		t.Fatalf("ChatStream: %v", err)
 	}
@@ -286,4 +286,63 @@ func TestGroqChatStreamNoToolsOmitsField(t *testing.T) {
 		t.Errorf("sin tools el body no debe llevar el campo: %s", gotBody)
 	}
 	_ = gotBody
+}
+
+func TestGroqExtractTextJSONMode(t *testing.T) {
+	var gotBody []byte
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotBody, _ = io.ReadAll(r.Body)
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"choices":[{"message":{"role":"assistant","content":"{\"movimientos\":[]}"}}]}`))
+	}))
+	defer srv.Close()
+
+	c := newGroqClient(srv.URL, "k", "m", "vm")
+	got, err := c.ExtractText(context.Background(), "sys", "datos csv")
+	if err != nil {
+		t.Fatalf("ExtractText: %v", err)
+	}
+	if got != `{"movimientos":[]}` {
+		t.Errorf("content = %q", got)
+	}
+	body := string(gotBody)
+	if !strings.Contains(body, `"response_format":{"type":"json_object"}`) {
+		t.Errorf("falta response_format json_object: %s", body)
+	}
+}
+
+func TestGroqExtractVisionSendsImage(t *testing.T) {
+	var gotBody []byte
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotBody, _ = io.ReadAll(r.Body)
+		_, _ = w.Write([]byte(`{"choices":[{"message":{"role":"assistant","content":"{\"movimientos\":[]}"}}]}`))
+	}))
+	defer srv.Close()
+
+	c := newGroqClient(srv.URL, "k", "text-model", "vision-model")
+	got, err := c.ExtractVision(context.Background(), "sys", "aGVsbG8=", "image/png")
+	if err != nil {
+		t.Fatalf("ExtractVision: %v", err)
+	}
+	if got != `{"movimientos":[]}` {
+		t.Errorf("content = %q", got)
+	}
+	body := string(gotBody)
+	for _, want := range []string{`"vision-model"`, `"type":"image_url"`, `data:image/png;base64,aGVsbG8=`, `"response_format"`} {
+		if !strings.Contains(body, want) {
+			t.Errorf("body no contiene %q: %s", want, body)
+		}
+	}
+}
+
+func TestGroqExtractVisionHTTPError(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusBadRequest)
+		_, _ = w.Write([]byte(`bad`))
+	}))
+	defer srv.Close()
+	c := newGroqClient(srv.URL, "k", "m", "vm")
+	if _, err := c.ExtractVision(context.Background(), "s", "x", "image/png"); err == nil {
+		t.Fatal("esperaba error en HTTP 400")
+	}
 }

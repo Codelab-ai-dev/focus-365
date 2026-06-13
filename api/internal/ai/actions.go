@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"math"
 	"strings"
 	"time"
 
@@ -12,23 +13,30 @@ import (
 	"github.com/focus365/api/internal/finance"
 	"github.com/focus365/api/internal/goals"
 	"github.com/focus365/api/internal/habits"
+	"github.com/focus365/api/internal/training"
 	"github.com/google/uuid"
 )
 
 // Kinds de acción persistidos en ai_messages.action_kind.
 const (
-	actionCheckin    = "checkin"
-	actionMovimiento = "movimiento"
-	actionHabito     = "habito"
-	actionMeta       = "meta"
+	actionCheckin       = "checkin"
+	actionMovimiento    = "movimiento"
+	actionHabito        = "habito"
+	actionMeta          = "meta"
+	actionHabitoNuevo   = "habito_nuevo"
+	actionMetaNueva     = "meta_nueva"
+	actionEntrenamiento = "entrenamiento"
 )
 
 // toolNameToKind mapea el nombre de la function de Groq al kind persistido.
 var toolNameToKind = map[string]string{
-	"registrar_checkin":    actionCheckin,
-	"registrar_movimiento": actionMovimiento,
-	"marcar_habito":        actionHabito,
-	"actualizar_meta":      actionMeta,
+	"registrar_checkin":       actionCheckin,
+	"registrar_movimiento":    actionMovimiento,
+	"marcar_habito":           actionHabito,
+	"actualizar_meta":         actionMeta,
+	"crear_habito":            actionHabitoNuevo,
+	"crear_meta":              actionMetaNueva,
+	"registrar_entrenamiento": actionEntrenamiento,
 }
 
 type checkinPayload struct {
@@ -53,6 +61,36 @@ type metaPayload struct {
 	GoalID   string `json:"goal_id"`
 	Progress int    `json:"progress"`
 }
+
+type habitoNuevoPayload struct {
+	Name       string `json:"name"`
+	TargetDays *int32 `json:"target_days,omitempty"`
+}
+
+type metaNuevaPayload struct {
+	Title     string `json:"title"`
+	Dimension string `json:"dimension"`
+	Deadline  string `json:"deadline,omitempty"` // YYYY-MM-DD, "" = sin fecha
+}
+
+type setPayload struct {
+	Exercise string   `json:"exercise"`
+	Reps     *int32   `json:"reps,omitempty"`
+	WeightKg *float64 `json:"weight_kg,omitempty"`
+}
+
+type entrenamientoPayload struct {
+	Type string       `json:"type"`
+	Note string       `json:"note,omitempty"`
+	Sets []setPayload `json:"sets"`
+}
+
+// goalDimensions replica el oneof del handler HTTP de metas.
+var goalDimensions = map[string]bool{
+	"checkin": true, "finanzas": true, "entrenamiento": true, "mente": true, "general": true,
+}
+
+const maxWorkoutSets = 20
 
 func rango(v, min, max int, campo string) error {
 	if v < min || v > max {
@@ -121,6 +159,61 @@ func parseActionPayload(kind, args string) (json.RawMessage, error) {
 			return nil, err
 		}
 		return json.Marshal(p)
+	case actionHabitoNuevo:
+		var p habitoNuevoPayload
+		if err := dec(&p); err != nil {
+			return nil, err
+		}
+		p.Name = strings.TrimSpace(p.Name)
+		if p.Name == "" {
+			return nil, fmt.Errorf("falta name")
+		}
+		if p.TargetDays != nil && *p.TargetDays < 1 {
+			return nil, fmt.Errorf("target_days debe ser positivo")
+		}
+		return json.Marshal(p)
+	case actionMetaNueva:
+		var p metaNuevaPayload
+		if err := dec(&p); err != nil {
+			return nil, err
+		}
+		p.Title = strings.TrimSpace(p.Title)
+		if p.Title == "" {
+			return nil, fmt.Errorf("falta title")
+		}
+		if !goalDimensions[p.Dimension] {
+			return nil, fmt.Errorf("dimension inválida: %s", p.Dimension)
+		}
+		if p.Deadline != "" {
+			if _, err := time.Parse("2006-01-02", p.Deadline); err != nil {
+				return nil, fmt.Errorf("deadline inválido (YYYY-MM-DD)")
+			}
+		}
+		return json.Marshal(p)
+	case actionEntrenamiento:
+		var p entrenamientoPayload
+		if err := dec(&p); err != nil {
+			return nil, err
+		}
+		p.Type = strings.TrimSpace(p.Type)
+		if p.Type == "" {
+			return nil, fmt.Errorf("falta type")
+		}
+		if len(p.Sets) == 0 || len(p.Sets) > maxWorkoutSets {
+			return nil, fmt.Errorf("sets debe tener entre 1 y %d series", maxWorkoutSets)
+		}
+		for i, s := range p.Sets {
+			if strings.TrimSpace(s.Exercise) == "" {
+				return nil, fmt.Errorf("serie %d sin exercise", i+1)
+			}
+			if s.Reps != nil && *s.Reps < 1 {
+				return nil, fmt.Errorf("serie %d: reps debe ser positivo", i+1)
+			}
+			if s.WeightKg != nil && *s.WeightKg <= 0 {
+				return nil, fmt.Errorf("serie %d: weight_kg debe ser positivo", i+1)
+			}
+		}
+		return json.Marshal(p)
 	}
 	return nil, fmt.Errorf("acción desconocida: %s", kind)
 }
@@ -146,6 +239,21 @@ func actionSummary(kind string, payload json.RawMessage) string {
 		var p metaPayload
 		_ = json.Unmarshal(payload, &p)
 		return fmt.Sprintf("Propongo actualizar el progreso de la meta a %d%%.", p.Progress)
+	case actionHabitoNuevo:
+		var p habitoNuevoPayload
+		_ = json.Unmarshal(payload, &p)
+		return fmt.Sprintf("Propongo crear el hábito %q.", p.Name)
+	case actionMetaNueva:
+		var p metaNuevaPayload
+		_ = json.Unmarshal(payload, &p)
+		if p.Deadline != "" {
+			return fmt.Sprintf("Propongo crear la meta %q (%s) para %s.", p.Title, p.Dimension, p.Deadline)
+		}
+		return fmt.Sprintf("Propongo crear la meta %q (%s).", p.Title, p.Dimension)
+	case actionEntrenamiento:
+		var p entrenamientoPayload
+		_ = json.Unmarshal(payload, &p)
+		return fmt.Sprintf("Propongo registrar un entrenamiento de %s con %d series.", p.Type, len(p.Sets))
 	}
 	return "Propongo una acción."
 }
@@ -174,19 +282,36 @@ type goalPatcher interface {
 	Patch(ctx context.Context, userID, id uuid.UUID, p goals.GoalPatch, today time.Time) (*goals.Goal, error)
 }
 
+type habitCreator interface {
+	Create(ctx context.Context, userID uuid.UUID, in habits.HabitInput, today time.Time) (*habits.Habit, error)
+}
+
+type goalCreator interface {
+	Create(ctx context.Context, userID uuid.UUID, in goals.GoalInput, today time.Time) (*goals.Goal, error)
+}
+
+type workoutCreator interface {
+	CreateWorkout(ctx context.Context, userID uuid.UUID, in training.WorkoutInput) (*training.Workout, error)
+}
+
 // actionExecutor traduce una acción confirmada a la llamada del servicio de
 // dominio correspondiente. Re-valida el payload (defensa en profundidad: ya se
 // validó al proponer, pero el dato vivió en la DB entre medio).
 type actionExecutor struct {
-	checkin checkinUpserter
-	finance txCreator
-	habits  habitChecker
-	goals   goalPatcher
+	checkin     checkinUpserter
+	finance     txCreator
+	habits      habitChecker
+	goals       goalPatcher
+	habitCreate habitCreator
+	goalCreate  goalCreator
+	workouts    workoutCreator
 }
 
 // NewActionExecutor arma el ejecutor con los servicios reales (wiring en server.go).
-func NewActionExecutor(c checkinUpserter, f txCreator, h habitChecker, g goalPatcher) *actionExecutor {
-	return &actionExecutor{checkin: c, finance: f, habits: h, goals: g}
+func NewActionExecutor(c checkinUpserter, f txCreator, h habitChecker, g goalPatcher,
+	hc habitCreator, gc goalCreator, w workoutCreator) *actionExecutor {
+	return &actionExecutor{checkin: c, finance: f, habits: h, goals: g,
+		habitCreate: hc, goalCreate: gc, workouts: w}
 }
 
 func (e *actionExecutor) execute(ctx context.Context, userID uuid.UUID, kind string, payload []byte, today time.Time) error {
@@ -232,11 +357,42 @@ func (e *actionExecutor) execute(ctx context.Context, userID uuid.UUID, kind str
 			return fmt.Errorf("%w: meta no encontrada", ErrActionInvalid)
 		}
 		return nil
+	case actionHabitoNuevo:
+		var p habitoNuevoPayload
+		_ = json.Unmarshal(normalized, &p)
+		_, err := e.habitCreate.Create(ctx, userID, habits.HabitInput{Name: p.Name, TargetDays: p.TargetDays}, today)
+		return err
+	case actionMetaNueva:
+		var p metaNuevaPayload
+		_ = json.Unmarshal(normalized, &p)
+		var deadline *time.Time
+		if p.Deadline != "" {
+			d, _ := time.Parse("2006-01-02", p.Deadline) // ya validado en parse
+			deadline = &d
+		}
+		_, err := e.goalCreate.Create(ctx, userID, goals.GoalInput{Title: p.Title, Dimension: p.Dimension, Deadline: deadline}, today)
+		return err
+	case actionEntrenamiento:
+		var p entrenamientoPayload
+		_ = json.Unmarshal(normalized, &p)
+		sets := make([]training.SetInput, 0, len(p.Sets))
+		for _, s := range p.Sets {
+			set := training.SetInput{Exercise: s.Exercise, Reps: s.Reps}
+			if s.WeightKg != nil {
+				g := int32(math.Round(*s.WeightKg * 1000))
+				set.WeightGrams = &g
+			}
+			sets = append(sets, set)
+		}
+		_, err := e.workouts.CreateWorkout(ctx, userID, training.WorkoutInput{
+			Date: today, Type: p.Type, Note: p.Note, Sets: sets,
+		})
+		return err
 	}
 	return fmt.Errorf("%w: kind %s", ErrActionInvalid, kind)
 }
 
-// buildChatTools define las 4 functions que se ofrecen al modelo.
+// buildChatTools define las functions que se ofrecen al modelo.
 func buildChatTools() []Tool {
 	return []Tool{
 		{
@@ -273,6 +429,36 @@ func buildChatTools() []Tool {
 				"goal_id":{"type":"string","description":"UUID de la meta, de la lista goals del contexto"},
 				"progress":{"type":"integer","minimum":0,"maximum":100}},
 				"required":["goal_id","progress"]}`),
+		},
+		{
+			Name:        "crear_habito",
+			Description: "Crea un hábito nuevo. Úsala solo si el usuario pide explícitamente crear/empezar un hábito. target_days es el objetivo de racha en días (opcional).",
+			Parameters: json.RawMessage(`{"type":"object","properties":{
+				"name":{"type":"string","description":"nombre del hábito"},
+				"target_days":{"type":"integer","minimum":1,"description":"objetivo de días (opcional)"}},
+				"required":["name"]}`),
+		},
+		{
+			Name:        "crear_meta",
+			Description: "Crea una meta nueva. dimension: checkin, finanzas, entrenamiento, mente o general — infiérela del tema (ahorro→finanzas) y usa general si no es claro. deadline opcional en YYYY-MM-DD.",
+			Parameters: json.RawMessage(`{"type":"object","properties":{
+				"title":{"type":"string"},
+				"dimension":{"type":"string","enum":["checkin","finanzas","entrenamiento","mente","general"]},
+				"deadline":{"type":"string","description":"YYYY-MM-DD, opcional"}},
+				"required":["title","dimension"]}`),
+		},
+		{
+			Name:        "registrar_entrenamiento",
+			Description: "Registra el entrenamiento de HOY con sus series. Úsala solo si el usuario pide registrar un entreno. El peso va en KILOGRAMOS (weight_kg). No inventes reps ni pesos que el usuario no dijo: las series pueden ir solo con el ejercicio.",
+			Parameters: json.RawMessage(`{"type":"object","properties":{
+				"type":{"type":"string","description":"tipo de sesión: fuerza, cardio, movilidad..."},
+				"note":{"type":"string","description":"nota opcional"},
+				"sets":{"type":"array","minItems":1,"maxItems":20,"items":{"type":"object","properties":{
+					"exercise":{"type":"string"},
+					"reps":{"type":"integer","minimum":1},
+					"weight_kg":{"type":"number","exclusiveMinimum":0}},
+					"required":["exercise"]}}},
+				"required":["type","sets"]}`),
 		},
 	}
 }

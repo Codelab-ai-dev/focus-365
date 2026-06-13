@@ -139,6 +139,76 @@ it("mensajes sin acción no muestran tarjeta ni botones", async () => {
   expect(screen.queryByRole("button", { name: "Confirmar" })).toBeNull();
 });
 
+it("la tarjeta de entrenamiento muestra tipo y series", async () => {
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(() =>
+      Promise.resolve(
+        new Response(
+          JSON.stringify({
+            messages: [
+              {
+                id: "w1",
+                role: "assistant",
+                content: "Propongo registrar un entrenamiento.",
+                action: {
+                  kind: "entrenamiento",
+                  payload: {
+                    type: "fuerza",
+                    sets: [
+                      { exercise: "press banca", reps: 8, weight_kg: 60 },
+                      { exercise: "plancha" },
+                    ],
+                  },
+                  status: "proposed",
+                },
+                created_at: "2026-06-12T10:00:01Z",
+              },
+            ],
+          }),
+          { status: 200 }
+        )
+      )
+    )
+  );
+  renderPage();
+  expect(await screen.findByText("Entrenamiento")).toBeInTheDocument();
+  expect(screen.getByText(/fuerza/)).toBeInTheDocument();
+  expect(screen.getByText(/press banca ×8 @60kg/)).toBeInTheDocument();
+});
+
+it("la tarjeta de hábito nuevo y meta nueva muestran sus datos", async () => {
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(() =>
+      Promise.resolve(
+        new Response(
+          JSON.stringify({
+            messages: [
+              {
+                id: "h1", role: "assistant", content: "x",
+                action: { kind: "habito_nuevo", payload: { name: "Leer 30 min", target_days: 21 }, status: "proposed" },
+                created_at: "2026-06-12T10:00:01Z",
+              },
+              {
+                id: "g1", role: "assistant", content: "y",
+                action: { kind: "meta_nueva", payload: { title: "Ahorrar 50k", dimension: "finanzas", deadline: "2026-12-01" }, status: "proposed" },
+                created_at: "2026-06-12T10:00:02Z",
+              },
+            ],
+          }),
+          { status: 200 }
+        )
+      )
+    )
+  );
+  renderPage();
+  expect(await screen.findByText("Nuevo hábito")).toBeInTheDocument();
+  expect(screen.getByText(/Leer 30 min · objetivo 21 días/)).toBeInTheDocument();
+  expect(screen.getByText("Nueva meta")).toBeInTheDocument();
+  expect(screen.getByText(/Ahorrar 50k · finanzas · para 2026-12-01/)).toBeInTheDocument();
+});
+
 describe("AsistentePage", () => {
   afterEach(() => vi.restoreAllMocks());
 

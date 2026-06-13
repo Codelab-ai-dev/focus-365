@@ -289,8 +289,8 @@ func TestChatSendStreamToolCallPersistsProposal(t *testing.T) {
 	if msg.Content == "" {
 		t.Error("el contenido no debe quedar vacío (resumen generado)")
 	}
-	if len(groq.lastTools) != 4 {
-		t.Errorf("tools enviadas = %d, want 4", len(groq.lastTools))
+	if len(groq.lastTools) != 7 {
+		t.Errorf("tools enviadas = %d, want 7", len(groq.lastTools))
 	}
 	if len(st.rows) != 2 || st.rows[1].ActionKind == nil {
 		t.Errorf("persistencia = %+v", st.rows)
@@ -342,7 +342,7 @@ func TestConfirmActionExecutesAndTransitions(t *testing.T) {
 	groq := &fakeChatGroq{toolCall: &ToolCall{Name: "registrar_checkin", Arguments: `{"mood":8,"energy":6,"discipline":9}`}}
 	st := &memStore{}
 	c := &fakeCheckinSvc{}
-	svc := NewChatService(fakeCtx{out: "{}"}, st, groq, groq, newTestExecutor(c, &fakeFinanceSvc{}, &fakeHabitsSvc{}, &fakeGoalsSvc{}), true)
+	svc := NewChatService(fakeCtx{out: "{}"}, st, groq, groq, newTestExecutor(c, &fakeFinanceSvc{}, &fakeHabitsSvc{}, &fakeGoalsSvc{}, &fakeHabitCreate{}, &fakeGoalCreate{}, &fakeWorkoutCreate{}), true)
 	uid := uuid.New()
 	msg := proposeCheckin(t, svc, uid)
 
@@ -367,7 +367,7 @@ func TestCancelActionTransitionsWithoutExecuting(t *testing.T) {
 	groq := &fakeChatGroq{toolCall: &ToolCall{Name: "registrar_checkin", Arguments: `{"mood":8,"energy":6,"discipline":9}`}}
 	st := &memStore{}
 	c := &fakeCheckinSvc{}
-	svc := NewChatService(fakeCtx{out: "{}"}, st, groq, groq, newTestExecutor(c, &fakeFinanceSvc{}, &fakeHabitsSvc{}, &fakeGoalsSvc{}), true)
+	svc := NewChatService(fakeCtx{out: "{}"}, st, groq, groq, newTestExecutor(c, &fakeFinanceSvc{}, &fakeHabitsSvc{}, &fakeGoalsSvc{}, &fakeHabitCreate{}, &fakeGoalCreate{}, &fakeWorkoutCreate{}), true)
 	uid := uuid.New()
 	msg := proposeCheckin(t, svc, uid)
 
@@ -384,7 +384,7 @@ func TestCancelActionTransitionsWithoutExecuting(t *testing.T) {
 }
 
 func TestConfirmActionNotFound(t *testing.T) {
-	svc := NewChatService(fakeCtx{out: "{}"}, &memStore{}, &fakeChatGroq{}, &fakeChatGroq{}, newTestExecutor(&fakeCheckinSvc{}, &fakeFinanceSvc{}, &fakeHabitsSvc{}, &fakeGoalsSvc{}), true)
+	svc := NewChatService(fakeCtx{out: "{}"}, &memStore{}, &fakeChatGroq{}, &fakeChatGroq{}, newTestExecutor(&fakeCheckinSvc{}, &fakeFinanceSvc{}, &fakeHabitsSvc{}, &fakeGoalsSvc{}, &fakeHabitCreate{}, &fakeGoalCreate{}, &fakeWorkoutCreate{}), true)
 	if _, err := svc.ConfirmAction(context.Background(), uuid.New(), uuid.New(), time.Now()); !errors.Is(err, ErrActionNotFound) {
 		t.Errorf("err = %v, want ErrActionNotFound", err)
 	}
@@ -393,7 +393,7 @@ func TestConfirmActionNotFound(t *testing.T) {
 func TestConfirmActionOnPlainMessageIsNotFound(t *testing.T) {
 	groq := &fakeChatGroq{chatDeltas: []string{"hola"}}
 	st := &memStore{}
-	svc := NewChatService(fakeCtx{out: "{}"}, st, groq, groq, newTestExecutor(&fakeCheckinSvc{}, &fakeFinanceSvc{}, &fakeHabitsSvc{}, &fakeGoalsSvc{}), true)
+	svc := NewChatService(fakeCtx{out: "{}"}, st, groq, groq, newTestExecutor(&fakeCheckinSvc{}, &fakeFinanceSvc{}, &fakeHabitsSvc{}, &fakeGoalsSvc{}, &fakeHabitCreate{}, &fakeGoalCreate{}, &fakeWorkoutCreate{}), true)
 	uid := uuid.New()
 	msg, err := svc.SendStream(context.Background(), uid, "hola", time.Now(), func(string) {})
 	if err != nil {

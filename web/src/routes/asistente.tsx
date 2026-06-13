@@ -15,6 +15,9 @@ const ACTION_TITLES: Record<string, string> = {
   movimiento: "Movimiento",
   habito: "Hábito",
   meta: "Meta",
+  habito_nuevo: "Nuevo hábito",
+  meta_nueva: "Nueva meta",
+  entrenamiento: "Entrenamiento",
 };
 
 function actionDetails(action: NonNullable<Message["action"]>): string {
@@ -28,6 +31,17 @@ function actionDetails(action: NonNullable<Message["action"]>): string {
       return "Marcar como hecho hoy";
     case "meta":
       return `Progreso al ${p.progress}%`;
+    case "habito_nuevo":
+      return `${p.name}${p.target_days ? ` · objetivo ${p.target_days} días` : ""}`;
+    case "meta_nueva":
+      return `${p.title} · ${p.dimension}${p.deadline ? ` · para ${p.deadline}` : ""}`;
+    case "entrenamiento": {
+      const sets = (p.sets as Array<Record<string, unknown>>) ?? [];
+      const detalle = sets
+        .map((s) => `${s.exercise}${s.reps ? ` ×${s.reps}` : ""}${s.weight_kg ? ` @${s.weight_kg}kg` : ""}`)
+        .join(" · ");
+      return `${p.type} · ${detalle}`;
+    }
     default:
       return "";
   }

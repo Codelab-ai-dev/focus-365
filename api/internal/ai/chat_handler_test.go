@@ -364,6 +364,40 @@ func TestActionConfirmInvalidPayloadIs400AndStaysProposed(t *testing.T) {
 	}
 }
 
+func TestActionCrearHabitoEndToEnd(t *testing.T) {
+	comp := &fakeCompleter{chatToolCall: &ai.ToolCall{
+		Name: "crear_habito", Arguments: `{"name":"Leer 30 min","target_days":21}`,
+	}}
+	e := newEnv(t, true, comp)
+	uid, tok := e.user(t, "habito-nuevo@b.com")
+	id := proposeViaChat(t, e, tok)
+
+	rec, body := postAction(t, e.h, tok, id, "confirm")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("confirm code = %d, body = %s", rec.Code, rec.Body.String())
+	}
+	msg, _ := body["message"].(map[string]any)
+	action, _ := msg["action"].(map[string]any)
+	if action["status"] != "done" || action["kind"] != "habito_nuevo" {
+		t.Errorf("action = %v", action)
+	}
+
+	// El hábito existe de verdad en la DB.
+	habs, err := e.q.ListHabits(context.Background(), uid)
+	if err != nil {
+		t.Fatalf("ListHabits: %v", err)
+	}
+	found := false
+	for _, h := range habs {
+		if h.Name == "Leer 30 min" {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("el hábito no se creó: %+v", habs)
+	}
+}
+
 func TestActionErrors(t *testing.T) {
 	comp := &fakeCompleter{chatToolCall: checkinToolCall()}
 	e := newEnv(t, true, comp)

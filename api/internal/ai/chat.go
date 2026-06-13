@@ -153,25 +153,28 @@ func (s *ChatService) SendStream(ctx context.Context, userID uuid.UUID, text str
 	}
 
 	if len(toolCalls) > 0 {
-		// Temporal (Task 4 reemplaza): si llegan más de 1 tool call, degradar.
-		if len(toolCalls) > 1 {
+		if len(toolCalls) > maxActionsPerTurn {
 			return nil, ErrUnavailable
 		}
-		toolCall := toolCalls[0]
-		kind, ok := toolNameToKind[toolCall.Name]
-		if !ok {
-			return nil, ErrUnavailable
-		}
-		payload, perr := parseActionPayload(kind, toolCall.Arguments)
-		if perr != nil {
-			return nil, ErrUnavailable
+		proposed := make([]ProposedAction, 0, len(toolCalls))
+		summaries := make([]string, 0, len(toolCalls))
+		for _, tc := range toolCalls {
+			kind, ok := toolNameToKind[tc.Name]
+			if !ok {
+				return nil, ErrUnavailable
+			}
+			payload, perr := parseActionPayload(kind, tc.Arguments)
+			if perr != nil {
+				return nil, ErrUnavailable
+			}
+			proposed = append(proposed, ProposedAction{Kind: kind, Payload: payload})
+			summaries = append(summaries, actionSummary(kind, payload))
 		}
 		content := strings.TrimSpace(reply)
 		if content == "" {
-			content = actionSummary(kind, payload)
+			content = strings.Join(summaries, " ")
 		}
-		assistant, actions, cerr := s.store.CreatePairWithActions(ctx, userID, text, content,
-			[]ProposedAction{{Kind: kind, Payload: payload}})
+		assistant, actions, cerr := s.store.CreatePairWithActions(ctx, userID, text, content, proposed)
 		if cerr != nil {
 			return nil, cerr
 		}

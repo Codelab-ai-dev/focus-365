@@ -420,6 +420,59 @@ func TestConfirmActionNotFound(t *testing.T) {
 	}
 }
 
+func TestChatSendStreamMultipleActions(t *testing.T) {
+	groq := &fakeChatGroq{toolCalls: []ToolCall{
+		{Name: "registrar_checkin", Arguments: `{"mood":8,"energy":7,"discipline":9}`},
+		{Name: "marcar_habito", Arguments: `{"habit_id":"3b39c1f1-58a6-4012-9b69-0a3f4f6f3a11"}`},
+	}}
+	st := &memStore{}
+	svc := NewChatService(fakeCtx{out: "{}"}, st, groq, groq, nil, true)
+	msg, err := svc.SendStream(context.Background(), uuid.New(), "check-in y meditación", time.Now(), func(string) {})
+	if err != nil {
+		t.Fatalf("SendStream: %v", err)
+	}
+	if len(msg.Actions) != 2 {
+		t.Fatalf("actions = %d, want 2", len(msg.Actions))
+	}
+	if msg.Actions[0].Kind != "checkin" || msg.Actions[1].Kind != "habito" {
+		t.Errorf("kinds = %s, %s", msg.Actions[0].Kind, msg.Actions[1].Kind)
+	}
+	if msg.Content == "" {
+		t.Error("contenido de fallback vacío")
+	}
+}
+
+func TestChatSendStreamTooManyActionsDegrades(t *testing.T) {
+	var calls []ToolCall
+	for i := 0; i < 6; i++ {
+		calls = append(calls, ToolCall{Name: "registrar_checkin", Arguments: `{"mood":8,"energy":7,"discipline":9}`})
+	}
+	st := &memStore{}
+	groq := &fakeChatGroq{toolCalls: calls}
+	svc := NewChatService(fakeCtx{out: "{}"}, st, groq, groq, nil, true)
+	if _, err := svc.SendStream(context.Background(), uuid.New(), "x", time.Now(), func(string) {}); !errors.Is(err, ErrUnavailable) {
+		t.Errorf("err = %v, want ErrUnavailable", err)
+	}
+	if len(st.rows) != 0 {
+		t.Error("no debe persistir nada")
+	}
+}
+
+func TestChatSendStreamOneInvalidActionDiscardsAll(t *testing.T) {
+	groq := &fakeChatGroq{toolCalls: []ToolCall{
+		{Name: "registrar_checkin", Arguments: `{"mood":8,"energy":7,"discipline":9}`},
+		{Name: "tool_inexistente", Arguments: `{}`},
+	}}
+	st := &memStore{}
+	svc := NewChatService(fakeCtx{out: "{}"}, st, groq, groq, nil, true)
+	if _, err := svc.SendStream(context.Background(), uuid.New(), "x", time.Now(), func(string) {}); !errors.Is(err, ErrUnavailable) {
+		t.Errorf("err = %v, want ErrUnavailable", err)
+	}
+	if len(st.rows) != 0 {
+		t.Error("all-or-nothing: nada persistido")
+	}
+}
+
 func TestConfirmActionOnPlainMessageIsNotFound(t *testing.T) {
 	groq := &fakeChatGroq{chatDeltas: []string{"hola"}}
 	st := &memStore{}

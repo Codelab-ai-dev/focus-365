@@ -92,6 +92,10 @@ var goalDimensions = map[string]bool{
 
 const maxWorkoutSets = 20
 
+// maxActionsPerTurn es el tope de acciones que el modelo puede proponer en un
+// turno. Si llegan más, el turno completo se descarta (all-or-nothing).
+const maxActionsPerTurn = 5
+
 func rango(v, min, max int, campo string) error {
 	if v < min || v > max {
 		return fmt.Errorf("%s fuera de rango (%d-%d)", campo, min, max)

@@ -285,12 +285,12 @@ func proposeViaChat(t *testing.T, e *env, tok string) string {
 	return id
 }
 
-func checkinToolCall() *ai.ToolCall {
-	return &ai.ToolCall{Name: "registrar_checkin", Arguments: `{"mood":8,"energy":6,"discipline":9}`}
+func checkinToolCall() []ai.ToolCall {
+	return []ai.ToolCall{{Name: "registrar_checkin", Arguments: `{"mood":8,"energy":6,"discipline":9}`}}
 }
 
 func TestActionConfirmHappyPath(t *testing.T) {
-	comp := &fakeCompleter{chatToolCall: checkinToolCall()}
+	comp := &fakeCompleter{chatToolCalls: checkinToolCall()}
 	e := newEnv(t, true, comp)
 	uid, tok := e.user(t, "action-ok@b.com")
 	id := proposeViaChat(t, e, tok)
@@ -322,7 +322,7 @@ func TestActionConfirmHappyPath(t *testing.T) {
 }
 
 func TestActionCancel(t *testing.T) {
-	comp := &fakeCompleter{chatToolCall: checkinToolCall()}
+	comp := &fakeCompleter{chatToolCalls: checkinToolCall()}
 	e := newEnv(t, true, comp)
 	uid, tok := e.user(t, "action-cancel@b.com")
 	id := proposeViaChat(t, e, tok)
@@ -344,8 +344,8 @@ func TestActionCancel(t *testing.T) {
 }
 
 func TestActionConfirmInvalidPayloadIs400AndStaysProposed(t *testing.T) {
-	comp := &fakeCompleter{chatToolCall: &ai.ToolCall{
-		Name: "marcar_habito", Arguments: `{"habit_id":"3b39c1f1-58a6-4012-9b69-0a3f4f6f3a11"}`,
+	comp := &fakeCompleter{chatToolCalls: []ai.ToolCall{
+		{Name: "marcar_habito", Arguments: `{"habit_id":"3b39c1f1-58a6-4012-9b69-0a3f4f6f3a11"}`},
 	}}
 	e := newEnv(t, true, comp)
 	_, tok := e.user(t, "action-400@b.com")
@@ -368,8 +368,8 @@ func TestActionConfirmInvalidPayloadIs400AndStaysProposed(t *testing.T) {
 }
 
 func TestActionCrearHabitoEndToEnd(t *testing.T) {
-	comp := &fakeCompleter{chatToolCall: &ai.ToolCall{
-		Name: "crear_habito", Arguments: `{"name":"Leer 30 min","target_days":21}`,
+	comp := &fakeCompleter{chatToolCalls: []ai.ToolCall{
+		{Name: "crear_habito", Arguments: `{"name":"Leer 30 min","target_days":21}`},
 	}}
 	e := newEnv(t, true, comp)
 	uid, tok := e.user(t, "habito-nuevo@b.com")
@@ -401,7 +401,7 @@ func TestActionCrearHabitoEndToEnd(t *testing.T) {
 }
 
 func TestActionErrors(t *testing.T) {
-	comp := &fakeCompleter{chatToolCall: checkinToolCall()}
+	comp := &fakeCompleter{chatToolCalls: checkinToolCall()}
 	e := newEnv(t, true, comp)
 	_, tok := e.user(t, "action-err@b.com")
 

@@ -20,7 +20,7 @@ type fakeChatGroq struct {
 	lastHistory []ChatMsg
 	lastTools   []Tool
 	chatDeltas  []string
-	toolCall    *ToolCall
+	toolCalls   []ToolCall
 }
 
 func (f *fakeChatGroq) Chat(ctx context.Context, system string, history []ChatMsg) (string, error) {
@@ -32,7 +32,7 @@ func (f *fakeChatGroq) Chat(ctx context.Context, system string, history []ChatMs
 
 // ChatStream del fake: emite chatDeltas en orden y devuelve su concatenación,
 // o err si está seteado (simula corte a medias tras emitir los deltas).
-func (f *fakeChatGroq) ChatStream(ctx context.Context, system string, history []ChatMsg, tools []Tool, onDelta func(string)) (string, *ToolCall, error) {
+func (f *fakeChatGroq) ChatStream(ctx context.Context, system string, history []ChatMsg, tools []Tool, onDelta func(string)) (string, []ToolCall, error) {
 	f.called++
 	f.lastSystem = system
 	f.lastHistory = history
@@ -45,7 +45,7 @@ func (f *fakeChatGroq) ChatStream(ctx context.Context, system string, history []
 	if f.err != nil {
 		return "", nil, f.err
 	}
-	return full, f.toolCall, nil
+	return full, f.toolCalls, nil
 }
 
 // fakeCtx devuelve un JSON fijo.
@@ -297,7 +297,7 @@ func (m *memStore) SetActionStatusFrom(ctx context.Context, id, userID uuid.UUID
 }
 
 func TestChatSendStreamToolCallPersistsProposal(t *testing.T) {
-	groq := &fakeChatGroq{toolCall: &ToolCall{Name: "registrar_checkin", Arguments: `{"mood":8,"energy":6,"discipline":9}`}}
+	groq := &fakeChatGroq{toolCalls: []ToolCall{{Name: "registrar_checkin", Arguments: `{"mood":8,"energy":6,"discipline":9}`}}}
 	st := &memStore{}
 	svc := NewChatService(fakeCtx{out: "{}"}, st, groq, groq, nil, true)
 	uid := uuid.New()
@@ -327,7 +327,7 @@ func TestChatSendStreamToolCallPersistsProposal(t *testing.T) {
 }
 
 func TestChatSendStreamUnknownToolDegrades(t *testing.T) {
-	groq := &fakeChatGroq{toolCall: &ToolCall{Name: "borrar_todo", Arguments: `{}`}}
+	groq := &fakeChatGroq{toolCalls: []ToolCall{{Name: "borrar_todo", Arguments: `{}`}}}
 	st := &memStore{}
 	svc := NewChatService(fakeCtx{out: "{}"}, st, groq, groq, nil, true)
 
@@ -341,7 +341,7 @@ func TestChatSendStreamUnknownToolDegrades(t *testing.T) {
 }
 
 func TestChatHistoryIncludesAction(t *testing.T) {
-	groq := &fakeChatGroq{toolCall: &ToolCall{Name: "marcar_habito", Arguments: `{"habit_id":"3b39c1f1-58a6-4012-9b69-0a3f4f6f3a11"}`}}
+	groq := &fakeChatGroq{toolCalls: []ToolCall{{Name: "marcar_habito", Arguments: `{"habit_id":"3b39c1f1-58a6-4012-9b69-0a3f4f6f3a11"}`}}}
 	st := &memStore{}
 	svc := NewChatService(fakeCtx{out: "{}"}, st, groq, groq, nil, true)
 	uid := uuid.New()
@@ -368,7 +368,7 @@ func proposeCheckin(t *testing.T, svc *ChatService, uid uuid.UUID) *Message {
 }
 
 func TestConfirmActionExecutesAndTransitions(t *testing.T) {
-	groq := &fakeChatGroq{toolCall: &ToolCall{Name: "registrar_checkin", Arguments: `{"mood":8,"energy":6,"discipline":9}`}}
+	groq := &fakeChatGroq{toolCalls: []ToolCall{{Name: "registrar_checkin", Arguments: `{"mood":8,"energy":6,"discipline":9}`}}}
 	st := &memStore{}
 	c := &fakeCheckinSvc{}
 	svc := NewChatService(fakeCtx{out: "{}"}, st, groq, groq, newTestExecutor(c, &fakeFinanceSvc{}, &fakeHabitsSvc{}, &fakeGoalsSvc{}, &fakeHabitCreate{}, &fakeGoalCreate{}, &fakeWorkoutCreate{}), true)
@@ -394,7 +394,7 @@ func TestConfirmActionExecutesAndTransitions(t *testing.T) {
 }
 
 func TestCancelActionTransitionsWithoutExecuting(t *testing.T) {
-	groq := &fakeChatGroq{toolCall: &ToolCall{Name: "registrar_checkin", Arguments: `{"mood":8,"energy":6,"discipline":9}`}}
+	groq := &fakeChatGroq{toolCalls: []ToolCall{{Name: "registrar_checkin", Arguments: `{"mood":8,"energy":6,"discipline":9}`}}}
 	st := &memStore{}
 	c := &fakeCheckinSvc{}
 	svc := NewChatService(fakeCtx{out: "{}"}, st, groq, groq, newTestExecutor(c, &fakeFinanceSvc{}, &fakeHabitsSvc{}, &fakeGoalsSvc{}, &fakeHabitCreate{}, &fakeGoalCreate{}, &fakeWorkoutCreate{}), true)

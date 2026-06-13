@@ -12,6 +12,7 @@ import (
 	"github.com/focus365/api/internal/finance"
 	"github.com/focus365/api/internal/goals"
 	"github.com/focus365/api/internal/habits"
+	"github.com/focus365/api/internal/training"
 	"github.com/google/uuid"
 )
 
@@ -280,19 +281,36 @@ type goalPatcher interface {
 	Patch(ctx context.Context, userID, id uuid.UUID, p goals.GoalPatch, today time.Time) (*goals.Goal, error)
 }
 
+type habitCreator interface {
+	Create(ctx context.Context, userID uuid.UUID, in habits.HabitInput, today time.Time) (*habits.Habit, error)
+}
+
+type goalCreator interface {
+	Create(ctx context.Context, userID uuid.UUID, in goals.GoalInput, today time.Time) (*goals.Goal, error)
+}
+
+type workoutCreator interface {
+	CreateWorkout(ctx context.Context, userID uuid.UUID, in training.WorkoutInput) (*training.Workout, error)
+}
+
 // actionExecutor traduce una acción confirmada a la llamada del servicio de
 // dominio correspondiente. Re-valida el payload (defensa en profundidad: ya se
 // validó al proponer, pero el dato vivió en la DB entre medio).
 type actionExecutor struct {
-	checkin checkinUpserter
-	finance txCreator
-	habits  habitChecker
-	goals   goalPatcher
+	checkin     checkinUpserter
+	finance     txCreator
+	habits      habitChecker
+	goals       goalPatcher
+	habitCreate habitCreator
+	goalCreate  goalCreator
+	workouts    workoutCreator
 }
 
 // NewActionExecutor arma el ejecutor con los servicios reales (wiring en server.go).
-func NewActionExecutor(c checkinUpserter, f txCreator, h habitChecker, g goalPatcher) *actionExecutor {
-	return &actionExecutor{checkin: c, finance: f, habits: h, goals: g}
+func NewActionExecutor(c checkinUpserter, f txCreator, h habitChecker, g goalPatcher,
+	hc habitCreator, gc goalCreator, w workoutCreator) *actionExecutor {
+	return &actionExecutor{checkin: c, finance: f, habits: h, goals: g,
+		habitCreate: hc, goalCreate: gc, workouts: w}
 }
 
 func (e *actionExecutor) execute(ctx context.Context, userID uuid.UUID, kind string, payload []byte, today time.Time) error {
@@ -338,6 +356,37 @@ func (e *actionExecutor) execute(ctx context.Context, userID uuid.UUID, kind str
 			return fmt.Errorf("%w: meta no encontrada", ErrActionInvalid)
 		}
 		return nil
+	case actionHabitoNuevo:
+		var p habitoNuevoPayload
+		_ = json.Unmarshal(normalized, &p)
+		_, err := e.habitCreate.Create(ctx, userID, habits.HabitInput{Name: p.Name, TargetDays: p.TargetDays}, today)
+		return err
+	case actionMetaNueva:
+		var p metaNuevaPayload
+		_ = json.Unmarshal(normalized, &p)
+		var deadline *time.Time
+		if p.Deadline != "" {
+			d, _ := time.Parse("2006-01-02", p.Deadline) // ya validado en parse
+			deadline = &d
+		}
+		_, err := e.goalCreate.Create(ctx, userID, goals.GoalInput{Title: p.Title, Dimension: p.Dimension, Deadline: deadline}, today)
+		return err
+	case actionEntrenamiento:
+		var p entrenamientoPayload
+		_ = json.Unmarshal(normalized, &p)
+		sets := make([]training.SetInput, 0, len(p.Sets))
+		for _, s := range p.Sets {
+			set := training.SetInput{Exercise: s.Exercise, Reps: s.Reps}
+			if s.WeightKg != nil {
+				g := int32(*s.WeightKg * 1000)
+				set.WeightGrams = &g
+			}
+			sets = append(sets, set)
+		}
+		_, err := e.workouts.CreateWorkout(ctx, userID, training.WorkoutInput{
+			Date: today, Type: p.Type, Note: p.Note, Sets: sets,
+		})
+		return err
 	}
 	return fmt.Errorf("%w: kind %s", ErrActionInvalid, kind)
 }

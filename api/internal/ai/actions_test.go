@@ -11,6 +11,7 @@ import (
 	"github.com/focus365/api/internal/finance"
 	"github.com/focus365/api/internal/goals"
 	"github.com/focus365/api/internal/habits"
+	"github.com/focus365/api/internal/training"
 	"github.com/google/uuid"
 )
 
@@ -195,13 +196,36 @@ func (f *fakeGoalsSvc) Patch(ctx context.Context, userID, id uuid.UUID, p goals.
 	return &goals.Goal{}, nil
 }
 
-func newTestExecutor(c *fakeCheckinSvc, fin *fakeFinanceSvc, h *fakeHabitsSvc, g *fakeGoalsSvc) *actionExecutor {
-	return &actionExecutor{checkin: c, finance: fin, habits: h, goals: g}
+type fakeHabitCreate struct{ in *habits.HabitInput }
+
+func (f *fakeHabitCreate) Create(ctx context.Context, userID uuid.UUID, in habits.HabitInput, today time.Time) (*habits.Habit, error) {
+	f.in = &in
+	return &habits.Habit{}, nil
+}
+
+type fakeGoalCreate struct{ in *goals.GoalInput }
+
+func (f *fakeGoalCreate) Create(ctx context.Context, userID uuid.UUID, in goals.GoalInput, today time.Time) (*goals.Goal, error) {
+	f.in = &in
+	return &goals.Goal{}, nil
+}
+
+type fakeWorkoutCreate struct{ in *training.WorkoutInput }
+
+func (f *fakeWorkoutCreate) CreateWorkout(ctx context.Context, userID uuid.UUID, in training.WorkoutInput) (*training.Workout, error) {
+	f.in = &in
+	return &training.Workout{}, nil
+}
+
+func newTestExecutor(c *fakeCheckinSvc, fin *fakeFinanceSvc, h *fakeHabitsSvc, g *fakeGoalsSvc,
+	hc *fakeHabitCreate, gc *fakeGoalCreate, wc *fakeWorkoutCreate) *actionExecutor {
+	return &actionExecutor{checkin: c, finance: fin, habits: h, goals: g,
+		habitCreate: hc, goalCreate: gc, workouts: wc}
 }
 
 func TestExecutorCheckin(t *testing.T) {
 	c := &fakeCheckinSvc{}
-	ex := newTestExecutor(c, &fakeFinanceSvc{}, &fakeHabitsSvc{}, &fakeGoalsSvc{})
+	ex := newTestExecutor(c, &fakeFinanceSvc{}, &fakeHabitsSvc{}, &fakeGoalsSvc{}, &fakeHabitCreate{}, &fakeGoalCreate{}, &fakeWorkoutCreate{})
 	today := time.Date(2026, 6, 11, 0, 0, 0, 0, time.UTC)
 
 	err := ex.execute(context.Background(), uuid.New(), "checkin",
@@ -216,7 +240,7 @@ func TestExecutorCheckin(t *testing.T) {
 
 func TestExecutorMovimiento(t *testing.T) {
 	fin := &fakeFinanceSvc{}
-	ex := newTestExecutor(&fakeCheckinSvc{}, fin, &fakeHabitsSvc{}, &fakeGoalsSvc{})
+	ex := newTestExecutor(&fakeCheckinSvc{}, fin, &fakeHabitsSvc{}, &fakeGoalsSvc{}, &fakeHabitCreate{}, &fakeGoalCreate{}, &fakeWorkoutCreate{})
 	today := time.Date(2026, 6, 11, 0, 0, 0, 0, time.UTC)
 
 	if err := ex.execute(context.Background(), uuid.New(), "movimiento",
@@ -229,7 +253,7 @@ func TestExecutorMovimiento(t *testing.T) {
 }
 
 func TestExecutorHabitoNotFound(t *testing.T) {
-	ex := newTestExecutor(&fakeCheckinSvc{}, &fakeFinanceSvc{}, &fakeHabitsSvc{notFound: true}, &fakeGoalsSvc{})
+	ex := newTestExecutor(&fakeCheckinSvc{}, &fakeFinanceSvc{}, &fakeHabitsSvc{notFound: true}, &fakeGoalsSvc{}, &fakeHabitCreate{}, &fakeGoalCreate{}, &fakeWorkoutCreate{})
 	err := ex.execute(context.Background(), uuid.New(), "habito",
 		[]byte(`{"habit_id":"3b39c1f1-58a6-4012-9b69-0a3f4f6f3a11"}`), time.Now())
 	if !errors.Is(err, ErrActionInvalid) {
@@ -239,7 +263,7 @@ func TestExecutorHabitoNotFound(t *testing.T) {
 
 func TestExecutorMeta(t *testing.T) {
 	g := &fakeGoalsSvc{}
-	ex := newTestExecutor(&fakeCheckinSvc{}, &fakeFinanceSvc{}, &fakeHabitsSvc{}, g)
+	ex := newTestExecutor(&fakeCheckinSvc{}, &fakeFinanceSvc{}, &fakeHabitsSvc{}, g, &fakeHabitCreate{}, &fakeGoalCreate{}, &fakeWorkoutCreate{})
 	if err := ex.execute(context.Background(), uuid.New(), "meta",
 		[]byte(`{"goal_id":"3b39c1f1-58a6-4012-9b69-0a3f4f6f3a11","progress":60}`), time.Now()); err != nil {
 		t.Fatalf("execute: %v", err)
@@ -250,9 +274,57 @@ func TestExecutorMeta(t *testing.T) {
 }
 
 func TestExecutorPayloadInvalido(t *testing.T) {
-	ex := newTestExecutor(&fakeCheckinSvc{}, &fakeFinanceSvc{}, &fakeHabitsSvc{}, &fakeGoalsSvc{})
+	ex := newTestExecutor(&fakeCheckinSvc{}, &fakeFinanceSvc{}, &fakeHabitsSvc{}, &fakeGoalsSvc{}, &fakeHabitCreate{}, &fakeGoalCreate{}, &fakeWorkoutCreate{})
 	err := ex.execute(context.Background(), uuid.New(), "checkin", []byte(`{"mood":99}`), time.Now())
 	if !errors.Is(err, ErrActionInvalid) {
 		t.Errorf("err = %v, want ErrActionInvalid", err)
+	}
+}
+
+func TestExecutorHabitoNuevo(t *testing.T) {
+	hc := &fakeHabitCreate{}
+	ex := newTestExecutor(&fakeCheckinSvc{}, &fakeFinanceSvc{}, &fakeHabitsSvc{}, &fakeGoalsSvc{}, hc, &fakeGoalCreate{}, &fakeWorkoutCreate{})
+	if err := ex.execute(context.Background(), uuid.New(), "habito_nuevo",
+		[]byte(`{"name":"Leer 30 min","target_days":21}`), time.Now()); err != nil {
+		t.Fatalf("execute: %v", err)
+	}
+	if hc.in == nil || hc.in.Name != "Leer 30 min" || hc.in.TargetDays == nil || *hc.in.TargetDays != 21 {
+		t.Errorf("input = %+v", hc.in)
+	}
+}
+
+func TestExecutorMetaNuevaConDeadline(t *testing.T) {
+	gc := &fakeGoalCreate{}
+	ex := newTestExecutor(&fakeCheckinSvc{}, &fakeFinanceSvc{}, &fakeHabitsSvc{}, &fakeGoalsSvc{}, &fakeHabitCreate{}, gc, &fakeWorkoutCreate{})
+	if err := ex.execute(context.Background(), uuid.New(), "meta_nueva",
+		[]byte(`{"title":"Ahorrar 50k","dimension":"finanzas","deadline":"2026-12-01"}`), time.Now()); err != nil {
+		t.Fatalf("execute: %v", err)
+	}
+	if gc.in == nil || gc.in.Title != "Ahorrar 50k" || gc.in.Dimension != "finanzas" {
+		t.Fatalf("input = %+v", gc.in)
+	}
+	if gc.in.Deadline == nil || gc.in.Deadline.Format("2006-01-02") != "2026-12-01" {
+		t.Errorf("deadline = %v", gc.in.Deadline)
+	}
+}
+
+func TestExecutorEntrenamientoConvierteKgAGramos(t *testing.T) {
+	wc := &fakeWorkoutCreate{}
+	ex := newTestExecutor(&fakeCheckinSvc{}, &fakeFinanceSvc{}, &fakeHabitsSvc{}, &fakeGoalsSvc{}, &fakeHabitCreate{}, &fakeGoalCreate{}, wc)
+	today := time.Date(2026, 6, 12, 0, 0, 0, 0, time.UTC)
+	if err := ex.execute(context.Background(), uuid.New(), "entrenamiento",
+		[]byte(`{"type":"fuerza","sets":[{"exercise":"press banca","reps":8,"weight_kg":60},{"exercise":"plancha"}]}`), today); err != nil {
+		t.Fatalf("execute: %v", err)
+	}
+	if wc.in == nil || wc.in.Type != "fuerza" || !wc.in.Date.Equal(today) || len(wc.in.Sets) != 2 {
+		t.Fatalf("input = %+v", wc.in)
+	}
+	s0 := wc.in.Sets[0]
+	if s0.Exercise != "press banca" || s0.Reps == nil || *s0.Reps != 8 || s0.WeightGrams == nil || *s0.WeightGrams != 60000 {
+		t.Errorf("set 0 = %+v", s0)
+	}
+	s1 := wc.in.Sets[1]
+	if s1.Reps != nil || s1.WeightGrams != nil {
+		t.Errorf("set 1 debe ir sin reps/peso: %+v", s1)
 	}
 }

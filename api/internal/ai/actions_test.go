@@ -328,3 +328,15 @@ func TestExecutorEntrenamientoConvierteKgAGramos(t *testing.T) {
 		t.Errorf("set 1 debe ir sin reps/peso: %+v", s1)
 	}
 }
+
+func TestExecutorEntrenamientoRedondeaGramos(t *testing.T) {
+	wc := &fakeWorkoutCreate{}
+	ex := newTestExecutor(&fakeCheckinSvc{}, &fakeFinanceSvc{}, &fakeHabitsSvc{}, &fakeGoalsSvc{}, &fakeHabitCreate{}, &fakeGoalCreate{}, wc)
+	if err := ex.execute(context.Background(), uuid.New(), "entrenamiento",
+		[]byte(`{"type":"fuerza","sets":[{"exercise":"x","weight_kg":60.5499}]}`), time.Now()); err != nil {
+		t.Fatalf("execute: %v", err)
+	}
+	if g := wc.in.Sets[0].WeightGrams; g == nil || *g != 60550 {
+		t.Errorf("gramos = %v, want 60550 (redondeo, no truncado)", g)
+	}
+}

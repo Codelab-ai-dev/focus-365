@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"math"
 	"strings"
 	"time"
 
@@ -378,7 +379,7 @@ func (e *actionExecutor) execute(ctx context.Context, userID uuid.UUID, kind str
 		for _, s := range p.Sets {
 			set := training.SetInput{Exercise: s.Exercise, Reps: s.Reps}
 			if s.WeightKg != nil {
-				g := int32(*s.WeightKg * 1000)
+				g := int32(math.Round(*s.WeightKg * 1000))
 				set.WeightGrams = &g
 			}
 			sets = append(sets, set)

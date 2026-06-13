@@ -142,8 +142,11 @@ function FinanzasPage() {
   );
 
   const confirmAllMutation = useMutation({
-    mutationFn: () => Promise.all(proposed.map((a) => confirmAction(a.id))),
-    onSuccess: () => {
+    // allSettled: una confirmación que falle no aborta las demás.
+    mutationFn: () => Promise.allSettled(proposed.map((a) => confirmAction(a.id))),
+    // onSettled (no onSuccess): tras un fallo parcial igual reconciliamos el
+    // caché con el servidor, así no quedan tarjetas obsoletas.
+    onSettled: () => {
       qc.invalidateQueries({ queryKey: ["finance", "uploads"] });
       qc.invalidateQueries({ queryKey: ["finance", "list"] });
       qc.invalidateQueries({ queryKey: ["finance", "summary"] });

@@ -53,6 +53,12 @@ func handleImport(imp *ImportService) http.HandlerFunc {
 			httpx.WriteErr(w, http.StatusRequestEntityTooLarge, "archivo demasiado grande (máx 8 MB)")
 			return
 		}
+		// Si multipart derramó a un temp file en disco, limpiarlo al terminar.
+		defer func() {
+			if r.MultipartForm != nil {
+				_ = r.MultipartForm.RemoveAll()
+			}
+		}()
 		file, hdr, err := r.FormFile("file")
 		if err != nil {
 			httpx.WriteErr(w, http.StatusBadRequest, "falta el archivo")

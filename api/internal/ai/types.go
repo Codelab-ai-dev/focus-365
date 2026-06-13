@@ -14,8 +14,9 @@ type Insight struct {
 	GeneratedAt time.Time `json:"generated_at"`
 }
 
-// ActionView es la acción propuesta/resuelta embebida en un mensaje.
+// ActionView es una acción del mensaje (propuesta o resuelta).
 type ActionView struct {
+	ID      string          `json:"id"`
 	Kind    string          `json:"kind"`
 	Payload json.RawMessage `json:"payload"`
 	Status  string          `json:"status"`
@@ -23,9 +24,9 @@ type ActionView struct {
 
 // Message es un mensaje del chat (vista que se serializa a JSON).
 type Message struct {
-	ID        string      `json:"id"`
-	Role      string      `json:"role"`
-	Content   string      `json:"content"`
-	Action    *ActionView `json:"action,omitempty"`
-	CreatedAt time.Time   `json:"created_at"`
+	ID        string       `json:"id"`
+	Role      string       `json:"role"`
+	Content   string       `json:"content"`
+	Actions   []ActionView `json:"actions,omitempty"`
+	CreatedAt time.Time    `json:"created_at"`
 }

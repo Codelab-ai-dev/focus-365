@@ -36,9 +36,10 @@ type chatStreamer interface {
 type messageStore interface {
 	ListMessages(ctx context.Context, userID uuid.UUID) ([]store.AiMessage, error)
 	CreatePair(ctx context.Context, userID uuid.UUID, userText, assistantText string) (store.AiMessage, error)
-	CreatePairWithAction(ctx context.Context, userID uuid.UUID, userText, assistantText, kind string, payload []byte) (store.AiMessage, error)
-	GetMessageForAction(ctx context.Context, id, userID uuid.UUID) (store.AiMessage, error)
-	SetActionStatus(ctx context.Context, id, userID uuid.UUID, status string) (store.AiMessage, error)
+	CreatePairWithActions(ctx context.Context, userID uuid.UUID, userText, assistantText string, actions []ProposedAction) (store.AiMessage, []store.AiAction, error)
+	ListActionsByMessages(ctx context.Context, messageIDs []uuid.UUID) ([]store.AiAction, error)
+	GetAction(ctx context.Context, id, userID uuid.UUID) (store.AiAction, error)
+	SetActionStatusFrom(ctx context.Context, id, userID uuid.UUID, to string, result []byte, from string) (store.AiAction, error)
 }
 
 // contextBuilder abstrae el armado del contexto (lo implementa chatContextBuilder).
@@ -63,13 +64,34 @@ func NewChatService(ctxb contextBuilder, q messageStore, c chatCompleter, s chat
 	return &ChatService{ctxb: ctxb, store: q, groq: c, streamer: s, exec: exec, hasKey: hasKey}
 }
 
-// History devuelve el historial completo del usuario, mapeado a la vista.
+// History devuelve el historial completo del usuario, mapeado a la vista, con
+// las acciones de cada mensaje colgadas (un solo query para evitar N+1).
 func (s *ChatService) History(ctx context.Context, userID uuid.UUID) ([]Message, error) {
 	rows, err := s.store.ListMessages(ctx, userID)
 	if err != nil {
 		return nil, err
 	}
-	return mapMessages(rows), nil
+	msgs := mapMessages(rows)
+	if len(rows) == 0 {
+		return msgs, nil
+	}
+	ids := make([]uuid.UUID, len(rows))
+	for i, r := range rows {
+		ids[i] = r.ID
+	}
+	acts, err := s.store.ListActionsByMessages(ctx, ids)
+	if err != nil {
+		return nil, err
+	}
+	byMsg := make(map[string][]ActionView)
+	for _, a := range acts {
+		k := a.MessageID.String()
+		byMsg[k] = append(byMsg[k], toActionView(a))
+	}
+	for i := range msgs {
+		msgs[i].Actions = byMsg[msgs[i].ID]
+	}
+	return msgs, nil
 }
 
 // Send procesa una pregunta: arma contexto, carga la cola del historial, llama a
@@ -143,11 +165,15 @@ func (s *ChatService) SendStream(ctx context.Context, userID uuid.UUID, text str
 		if content == "" {
 			content = actionSummary(kind, payload)
 		}
-		assistant, cerr := s.store.CreatePairWithAction(ctx, userID, text, content, kind, payload)
+		assistant, actions, cerr := s.store.CreatePairWithActions(ctx, userID, text, content,
+			[]ProposedAction{{Kind: kind, Payload: payload}})
 		if cerr != nil {
 			return nil, cerr
 		}
 		v := toMessageView(assistant)
+		for _, a := range actions {
+			v.Actions = append(v.Actions, toActionView(a))
+		}
 		return &v, nil
 	}
 
@@ -182,67 +208,62 @@ func mapMessages(rows []store.AiMessage) []Message {
 	return out
 }
 
-// toMessageView mapea la fila a la vista, incluyendo la acción si la hay.
+// toMessageView mapea la fila a la vista (sin acciones; estas se cuelgan aparte).
 func toMessageView(r store.AiMessage) Message {
-	m := Message{ID: r.ID.String(), Role: r.Role, Content: r.Content, CreatedAt: r.CreatedAt}
-	if r.ActionKind != nil && r.ActionStatus != nil {
-		m.Action = &ActionView{Kind: *r.ActionKind, Payload: json.RawMessage(r.ActionPayload), Status: *r.ActionStatus}
-	}
-	return m
+	return Message{ID: r.ID.String(), Role: r.Role, Content: r.Content, CreatedAt: r.CreatedAt}
 }
 
-// ConfirmAction ejecuta la acción propuesta del mensaje y la marca done.
+// toActionView mapea una fila de ai_actions a la vista.
+func toActionView(a store.AiAction) ActionView {
+	return ActionView{ID: a.ID.String(), Kind: a.Kind, Payload: json.RawMessage(a.Payload), Status: a.Status}
+}
+
+// ConfirmAction ejecuta la acción propuesta y la marca done.
 // Solo transiciona si la ejecución fue exitosa.
-func (s *ChatService) ConfirmAction(ctx context.Context, userID, messageID uuid.UUID, today time.Time) (*Message, error) {
-	row, err := s.store.GetMessageForAction(ctx, messageID, userID)
+func (s *ChatService) ConfirmAction(ctx context.Context, userID, actionID uuid.UUID, today time.Time) (*ActionView, error) {
+	row, err := s.store.GetAction(ctx, actionID, userID)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return nil, ErrActionNotFound
 		}
 		return nil, err
 	}
-	if row.ActionKind == nil || row.ActionStatus == nil {
-		return nil, ErrActionNotFound
-	}
-	if *row.ActionStatus != "proposed" {
+	if row.Status != "proposed" {
 		return nil, ErrActionConflict
 	}
-	if err := s.exec.execute(ctx, userID, *row.ActionKind, row.ActionPayload, today); err != nil {
+	if err := s.exec.execute(ctx, userID, row.Kind, row.Payload, today); err != nil {
 		return nil, err
 	}
-	upd, err := s.store.SetActionStatus(ctx, messageID, userID, "done")
+	upd, err := s.store.SetActionStatusFrom(ctx, actionID, userID, "done", nil, "proposed")
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return nil, ErrActionConflict
 		}
 		return nil, err
 	}
-	v := toMessageView(upd)
+	v := toActionView(upd)
 	return &v, nil
 }
 
 // CancelAction marca la propuesta como cancelada sin ejecutar nada.
-func (s *ChatService) CancelAction(ctx context.Context, userID, messageID uuid.UUID) (*Message, error) {
-	row, err := s.store.GetMessageForAction(ctx, messageID, userID)
+func (s *ChatService) CancelAction(ctx context.Context, userID, actionID uuid.UUID) (*ActionView, error) {
+	row, err := s.store.GetAction(ctx, actionID, userID)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return nil, ErrActionNotFound
 		}
 		return nil, err
 	}
-	if row.ActionKind == nil || row.ActionStatus == nil {
-		return nil, ErrActionNotFound
-	}
-	if *row.ActionStatus != "proposed" {
+	if row.Status != "proposed" {
 		return nil, ErrActionConflict
 	}
-	upd, err := s.store.SetActionStatus(ctx, messageID, userID, "cancelled")
+	upd, err := s.store.SetActionStatusFrom(ctx, actionID, userID, "cancelled", nil, "proposed")
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return nil, ErrActionConflict
 		}
 		return nil, err
 	}
-	v := toMessageView(upd)
+	v := toActionView(upd)
 	return &v, nil
 }

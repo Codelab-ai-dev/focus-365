@@ -7,6 +7,7 @@ import (
 
 	"github.com/focus365/api/internal/store"
 	"github.com/focus365/api/internal/testutil"
+	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 )
 
@@ -65,7 +66,19 @@ func TestCreateAndListMessages(t *testing.T) {
 	}
 }
 
-func TestAiMessageActionRoundTrip(t *testing.T) {
+// createAssistantMsg crea un mensaje de asistente al que colgar acciones.
+func createAssistantMsg(t *testing.T, q *store.Queries, ctx context.Context, userID uuid.UUID) store.AiMessage {
+	t.Helper()
+	m, err := q.CreateMessage(ctx, store.CreateMessageParams{
+		UserID: userID, Role: "assistant", Content: "Propongo una acción.",
+	})
+	if err != nil {
+		t.Fatalf("CreateMessage: %v", err)
+	}
+	return m
+}
+
+func TestAiActionRoundTrip(t *testing.T) {
 	pool := testutil.NewDB(t)
 	q := store.New(pool)
 	ctx := context.Background()
@@ -75,52 +88,78 @@ func TestAiMessageActionRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatalf("CreateUser: %v", err)
 	}
+	msg := createAssistantMsg(t, q, ctx, u.ID)
 
-	kind := "checkin"
-	status := "proposed"
-	m, err := q.CreateMessageWithAction(ctx, store.CreateMessageWithActionParams{
-		UserID: u.ID, Role: "assistant", Content: "Propongo registrar tu check-in.",
-		ActionKind: &kind, ActionPayload: []byte(`{"mood":8,"energy":6,"discipline":9}`),
-		ActionStatus: &status,
+	a, err := q.CreateAction(ctx, store.CreateActionParams{
+		MessageID: msg.ID, UserID: u.ID, Position: 0, Kind: "checkin",
+		Payload: []byte(`{"mood":8,"energy":6,"discipline":9}`), Status: "proposed",
 	})
 	if err != nil {
-		t.Fatalf("CreateMessageWithAction: %v", err)
+		t.Fatalf("CreateAction: %v", err)
 	}
-	if m.ActionKind == nil || *m.ActionKind != "checkin" || m.ActionStatus == nil || *m.ActionStatus != "proposed" {
-		t.Errorf("acción mal persistida: %+v", m)
+	if a.Kind != "checkin" || a.Status != "proposed" {
+		t.Errorf("acción mal persistida: %+v", a)
 	}
 
-	got, err := q.GetMessageForAction(ctx, store.GetMessageForActionParams{ID: m.ID, UserID: u.ID})
+	got, err := q.GetAction(ctx, store.GetActionParams{ID: a.ID, UserID: u.ID})
 	if err != nil {
-		t.Fatalf("GetMessageForAction: %v", err)
+		t.Fatalf("GetAction: %v", err)
 	}
-	if string(got.ActionPayload) != `{"mood":8,"energy":6,"discipline":9}` &&
-		string(got.ActionPayload) != `{"mood": 8, "energy": 6, "discipline": 9}` {
-		t.Errorf("payload = %s", got.ActionPayload)
+	if string(got.Payload) != `{"mood":8,"energy":6,"discipline":9}` &&
+		string(got.Payload) != `{"mood": 8, "energy": 6, "discipline": 9}` {
+		t.Errorf("payload = %s", got.Payload)
 	}
 
-	// Transición válida: proposed → done.
-	upd, err := q.SetActionStatus(ctx, store.SetActionStatusParams{ID: m.ID, UserID: u.ID, ActionStatus: ptr("done")})
+	// ListActionsByMessages las cuelga del mensaje.
+	list, err := q.ListActionsByMessages(ctx, []uuid.UUID{msg.ID})
 	if err != nil {
-		t.Fatalf("SetActionStatus: %v", err)
+		t.Fatalf("ListActionsByMessages: %v", err)
 	}
-	if upd.ActionStatus == nil || *upd.ActionStatus != "done" {
-		t.Errorf("status = %v", upd.ActionStatus)
+	if len(list) != 1 || list[0].ID != a.ID {
+		t.Errorf("list = %+v", list)
 	}
 
-	// Segunda transición: ya no está proposed → ErrNoRows (conflicto).
-	if _, err := q.SetActionStatus(ctx, store.SetActionStatusParams{ID: m.ID, UserID: u.ID, ActionStatus: ptr("cancelled")}); !errors.Is(err, pgx.ErrNoRows) {
+	// Transición válida: proposed → done, guardando result.
+	upd, err := q.SetActionStatusFrom(ctx, store.SetActionStatusFromParams{
+		ID: a.ID, UserID: u.ID, Status: "done", Result: []byte(`{"tx_id":"x"}`), Status_2: "proposed",
+	})
+	if err != nil {
+		t.Fatalf("SetActionStatusFrom done: %v", err)
+	}
+	if upd.Status != "done" || string(upd.Result) != `{"tx_id":"x"}` && string(upd.Result) != `{"tx_id": "x"}` {
+		t.Errorf("upd = %+v", upd)
+	}
+
+	// Transición done → undone (modelo nuevo).
+	und, err := q.SetActionStatusFrom(ctx, store.SetActionStatusFromParams{
+		ID: a.ID, UserID: u.ID, Status: "undone", Result: nil, Status_2: "done",
+	})
+	if err != nil {
+		t.Fatalf("SetActionStatusFrom undone: %v", err)
+	}
+	if und.Status != "undone" {
+		t.Errorf("status = %v, want undone", und.Status)
+	}
+	// COALESCE: result nil no pisa el guardado.
+	if string(und.Result) != `{"tx_id":"x"}` && string(und.Result) != `{"tx_id": "x"}` {
+		t.Errorf("result pisado = %s", und.Result)
+	}
+
+	// Doble transición desde un from que ya no aplica → ErrNoRows (conflicto).
+	if _, err := q.SetActionStatusFrom(ctx, store.SetActionStatusFromParams{
+		ID: a.ID, UserID: u.ID, Status: "cancelled", Result: nil, Status_2: "proposed",
+	}); !errors.Is(err, pgx.ErrNoRows) {
 		t.Errorf("doble transición err = %v, want pgx.ErrNoRows", err)
 	}
 
-	// Otro usuario no puede tocar la acción.
+	// Otro usuario no puede leer la acción (scoping).
 	otro, _ := q.CreateUser(ctx, store.CreateUserParams{Email: "action-otro@b.com", PasswordHash: "h", Name: "Eve"})
-	if _, err := q.GetMessageForAction(ctx, store.GetMessageForActionParams{ID: m.ID, UserID: otro.ID}); !errors.Is(err, pgx.ErrNoRows) {
+	if _, err := q.GetAction(ctx, store.GetActionParams{ID: a.ID, UserID: otro.ID}); !errors.Is(err, pgx.ErrNoRows) {
 		t.Errorf("scoping err = %v, want pgx.ErrNoRows", err)
 	}
 }
 
-func TestAiMessageNewActionKinds(t *testing.T) {
+func TestAiActionAllKinds(t *testing.T) {
 	pool := testutil.NewDB(t)
 	q := store.New(pool)
 	ctx := context.Background()
@@ -130,15 +169,40 @@ func TestAiMessageNewActionKinds(t *testing.T) {
 	if err != nil {
 		t.Fatalf("CreateUser: %v", err)
 	}
-	for _, kind := range []string{"habito_nuevo", "meta_nueva", "entrenamiento"} {
-		k := kind
-		if _, err := q.CreateMessageWithAction(ctx, store.CreateMessageWithActionParams{
-			UserID: u.ID, Role: "assistant", Content: "x",
-			ActionKind: &k, ActionPayload: []byte(`{}`), ActionStatus: ptr("proposed"),
+	msg := createAssistantMsg(t, q, ctx, u.ID)
+	for i, kind := range []string{
+		"checkin", "movimiento", "habito", "meta",
+		"habito_nuevo", "meta_nueva", "entrenamiento",
+	} {
+		if _, err := q.CreateAction(ctx, store.CreateActionParams{
+			MessageID: msg.ID, UserID: u.ID, Position: int32(i),
+			Kind: kind, Payload: []byte(`{}`), Status: "proposed",
 		}); err != nil {
 			t.Errorf("kind %s rechazado por el CHECK: %v", kind, err)
 		}
 	}
 }
 
-func ptr(s string) *string { return &s }
+// TestAiActionsTableExists verifica vía SQL directo que la tabla de la
+// migración 0011 existe y acepta una fila (la migración de datos en sí no se
+// puede sembrar post-migración porque las columnas viejas ya no existen).
+func TestAiActionsTableExists(t *testing.T) {
+	pool := testutil.NewDB(t)
+	q := store.New(pool)
+	ctx := context.Background()
+	u, err := q.CreateUser(ctx, store.CreateUserParams{
+		Email: "table-exists@b.com", PasswordHash: "h", Name: "Ada",
+	})
+	if err != nil {
+		t.Fatalf("CreateUser: %v", err)
+	}
+	msg := createAssistantMsg(t, q, ctx, u.ID)
+	var n int
+	if err := pool.QueryRow(ctx,
+		`INSERT INTO ai_actions (message_id, user_id, position, kind, payload, status)
+		 VALUES ($1, $2, 0, 'checkin', '{}'::jsonb, 'proposed') RETURNING 1`,
+		msg.ID, u.ID,
+	).Scan(&n); err != nil {
+		t.Fatalf("INSERT directo a ai_actions: %v", err)
+	}
+}

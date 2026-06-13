@@ -58,9 +58,11 @@ func (f fakeCtx) build(ctx context.Context, userID uuid.UUID, today time.Time) (
 	return f.out, f.err
 }
 
-// memStore es un messageStore en memoria (sin DB) por usuario.
+// memStore es un messageStore en memoria (sin DB) por usuario. Guarda los
+// mensajes y sus acciones por separado, como la tabla ai_actions.
 type memStore struct {
-	rows []store.AiMessage
+	rows    []store.AiMessage
+	actions []store.AiAction
 }
 
 func (m *memStore) ListMessages(ctx context.Context, userID uuid.UUID) ([]store.AiMessage, error) {
@@ -234,40 +236,64 @@ func TestChatSendStreamNoKeyDegrades(t *testing.T) {
 	}
 }
 
-func (m *memStore) CreatePairWithAction(ctx context.Context, userID uuid.UUID, userText, assistantText, kind string, payload []byte) (store.AiMessage, error) {
+func (m *memStore) CreatePairWithActions(ctx context.Context, userID uuid.UUID, userText, assistantText string, actions []ProposedAction) (store.AiMessage, []store.AiAction, error) {
 	user := store.AiMessage{
 		ID: uuid.New(), UserID: userID, Role: "user", Content: userText,
 		CreatedAt: time.Now().Add(time.Duration(len(m.rows)) * time.Millisecond),
 	}
 	m.rows = append(m.rows, user)
-	status := "proposed"
 	assistant := store.AiMessage{
 		ID: uuid.New(), UserID: userID, Role: "assistant", Content: assistantText,
-		ActionKind: &kind, ActionPayload: payload, ActionStatus: &status,
 		CreatedAt: time.Now().Add(time.Duration(len(m.rows)) * time.Millisecond),
 	}
 	m.rows = append(m.rows, assistant)
-	return assistant, nil
+	out := make([]store.AiAction, 0, len(actions))
+	for i, a := range actions {
+		act := store.AiAction{
+			ID: uuid.New(), MessageID: assistant.ID, UserID: userID,
+			Position: int32(i), Kind: a.Kind, Payload: a.Payload, Status: "proposed",
+			CreatedAt: time.Now(),
+		}
+		m.actions = append(m.actions, act)
+		out = append(out, act)
+	}
+	return assistant, out, nil
 }
 
-func (m *memStore) GetMessageForAction(ctx context.Context, id, userID uuid.UUID) (store.AiMessage, error) {
-	for _, r := range m.rows {
-		if r.ID == id && r.UserID == userID {
-			return r, nil
+func (m *memStore) ListActionsByMessages(ctx context.Context, messageIDs []uuid.UUID) ([]store.AiAction, error) {
+	want := make(map[uuid.UUID]bool, len(messageIDs))
+	for _, id := range messageIDs {
+		want[id] = true
+	}
+	out := make([]store.AiAction, 0, len(m.actions))
+	for _, a := range m.actions {
+		if want[a.MessageID] {
+			out = append(out, a)
 		}
 	}
-	return store.AiMessage{}, pgx.ErrNoRows
+	return out, nil
 }
 
-func (m *memStore) SetActionStatus(ctx context.Context, id, userID uuid.UUID, status string) (store.AiMessage, error) {
-	for i, r := range m.rows {
-		if r.ID == id && r.UserID == userID && r.ActionStatus != nil && *r.ActionStatus == "proposed" {
-			s := status
-			m.rows[i].ActionStatus = &s
-			return m.rows[i], nil
+func (m *memStore) GetAction(ctx context.Context, id, userID uuid.UUID) (store.AiAction, error) {
+	for _, a := range m.actions {
+		if a.ID == id && a.UserID == userID {
+			return a, nil
 		}
 	}
-	return store.AiMessage{}, pgx.ErrNoRows
+	return store.AiAction{}, pgx.ErrNoRows
+}
+
+func (m *memStore) SetActionStatusFrom(ctx context.Context, id, userID uuid.UUID, to string, result []byte, from string) (store.AiAction, error) {
+	for i, a := range m.actions {
+		if a.ID == id && a.UserID == userID && a.Status == from {
+			m.actions[i].Status = to
+			if result != nil {
+				m.actions[i].Result = result
+			}
+			return m.actions[i], nil
+		}
+	}
+	return store.AiAction{}, pgx.ErrNoRows
 }
 
 func TestChatSendStreamToolCallPersistsProposal(t *testing.T) {
@@ -280,11 +306,14 @@ func TestChatSendStreamToolCallPersistsProposal(t *testing.T) {
 	if err != nil {
 		t.Fatalf("SendStream: %v", err)
 	}
-	if msg.Action == nil || msg.Action.Kind != "checkin" || msg.Action.Status != "proposed" {
-		t.Fatalf("action = %+v", msg.Action)
+	if len(msg.Actions) != 1 || msg.Actions[0].Kind != "checkin" || msg.Actions[0].Status != "proposed" {
+		t.Fatalf("actions = %+v", msg.Actions)
 	}
 	if msg.ID == "" {
 		t.Error("falta ID en el mensaje")
+	}
+	if msg.Actions[0].ID == "" {
+		t.Error("falta ID en la acción")
 	}
 	if msg.Content == "" {
 		t.Error("el contenido no debe quedar vacío (resumen generado)")
@@ -292,8 +321,8 @@ func TestChatSendStreamToolCallPersistsProposal(t *testing.T) {
 	if len(groq.lastTools) != 7 {
 		t.Errorf("tools enviadas = %d, want 7", len(groq.lastTools))
 	}
-	if len(st.rows) != 2 || st.rows[1].ActionKind == nil {
-		t.Errorf("persistencia = %+v", st.rows)
+	if len(st.rows) != 2 || len(st.actions) != 1 {
+		t.Errorf("persistencia = rows=%+v actions=%+v", st.rows, st.actions)
 	}
 }
 
@@ -324,7 +353,7 @@ func TestChatHistoryIncludesAction(t *testing.T) {
 		t.Fatalf("History: %v", err)
 	}
 	last := msgs[len(msgs)-1]
-	if last.Action == nil || last.Action.Kind != "habito" || last.ID == "" {
+	if len(last.Actions) != 1 || last.Actions[0].Kind != "habito" || last.ID == "" {
 		t.Errorf("history sin acción: %+v", last)
 	}
 }
@@ -345,20 +374,21 @@ func TestConfirmActionExecutesAndTransitions(t *testing.T) {
 	svc := NewChatService(fakeCtx{out: "{}"}, st, groq, groq, newTestExecutor(c, &fakeFinanceSvc{}, &fakeHabitsSvc{}, &fakeGoalsSvc{}, &fakeHabitCreate{}, &fakeGoalCreate{}, &fakeWorkoutCreate{}), true)
 	uid := uuid.New()
 	msg := proposeCheckin(t, svc, uid)
+	actionID := uuid.MustParse(msg.Actions[0].ID)
 
-	got, err := svc.ConfirmAction(context.Background(), uid, uuid.MustParse(msg.ID), time.Now())
+	got, err := svc.ConfirmAction(context.Background(), uid, actionID, time.Now())
 	if err != nil {
 		t.Fatalf("ConfirmAction: %v", err)
 	}
-	if got.Action == nil || got.Action.Status != "done" {
-		t.Errorf("status = %+v", got.Action)
+	if got.Status != "done" {
+		t.Errorf("status = %+v", got)
 	}
 	if c.in == nil || c.in.Mood != 8 {
 		t.Errorf("no ejecutó el check-in: %+v", c.in)
 	}
 
 	// Doble confirm → conflicto.
-	if _, err := svc.ConfirmAction(context.Background(), uid, uuid.MustParse(msg.ID), time.Now()); !errors.Is(err, ErrActionConflict) {
+	if _, err := svc.ConfirmAction(context.Background(), uid, actionID, time.Now()); !errors.Is(err, ErrActionConflict) {
 		t.Errorf("doble confirm err = %v, want ErrActionConflict", err)
 	}
 }
@@ -371,12 +401,12 @@ func TestCancelActionTransitionsWithoutExecuting(t *testing.T) {
 	uid := uuid.New()
 	msg := proposeCheckin(t, svc, uid)
 
-	got, err := svc.CancelAction(context.Background(), uid, uuid.MustParse(msg.ID))
+	got, err := svc.CancelAction(context.Background(), uid, uuid.MustParse(msg.Actions[0].ID))
 	if err != nil {
 		t.Fatalf("CancelAction: %v", err)
 	}
-	if got.Action == nil || got.Action.Status != "cancelled" {
-		t.Errorf("status = %+v", got.Action)
+	if got.Status != "cancelled" {
+		t.Errorf("status = %+v", got)
 	}
 	if c.in != nil {
 		t.Error("cancelar no debe ejecutar nada")

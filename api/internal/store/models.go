@@ -10,6 +10,18 @@ import (
 	"github.com/google/uuid"
 )
 
+type AiAction struct {
+	ID        uuid.UUID `json:"id"`
+	MessageID uuid.UUID `json:"message_id"`
+	UserID    uuid.UUID `json:"user_id"`
+	Position  int32     `json:"position"`
+	Kind      string    `json:"kind"`
+	Payload   []byte    `json:"payload"`
+	Status    string    `json:"status"`
+	Result    []byte    `json:"result"`
+	CreatedAt time.Time `json:"created_at"`
+}
+
 type AiInsight struct {
 	ID              uuid.UUID `json:"id"`
 	UserID          uuid.UUID `json:"user_id"`
@@ -21,14 +33,11 @@ type AiInsight struct {
 }
 
 type AiMessage struct {
-	ID            uuid.UUID `json:"id"`
-	UserID        uuid.UUID `json:"user_id"`
-	Role          string    `json:"role"`
-	Content       string    `json:"content"`
-	CreatedAt     time.Time `json:"created_at"`
-	ActionKind    *string   `json:"action_kind"`
-	ActionPayload []byte    `json:"action_payload"`
-	ActionStatus  *string   `json:"action_status"`
+	ID        uuid.UUID `json:"id"`
+	UserID    uuid.UUID `json:"user_id"`
+	Role      string    `json:"role"`
+	Content   string    `json:"content"`
+	CreatedAt time.Time `json:"created_at"`
 }
 
 type CheckIn struct {

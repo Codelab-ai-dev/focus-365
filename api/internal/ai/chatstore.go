@@ -2,6 +2,7 @@ package ai
 
 import (
 	"context"
+	"encoding/json"
 
 	"github.com/focus365/api/internal/store"
 	"github.com/google/uuid"
@@ -54,12 +55,18 @@ func (s *pgChatStore) CreatePair(ctx context.Context, userID uuid.UUID, userText
 	return assistant, nil
 }
 
-// CreatePairWithAction es CreatePair pero el mensaje del asistente lleva una
-// acción propuesta (kind + payload + status 'proposed'). Misma transacción.
-func (s *pgChatStore) CreatePairWithAction(ctx context.Context, userID uuid.UUID, userText, assistantText, kind string, payload []byte) (store.AiMessage, error) {
+// ProposedAction es una acción validada lista para persistir como proposed.
+type ProposedAction struct {
+	Kind    string
+	Payload json.RawMessage
+}
+
+// CreatePairWithActions persiste el par usuario+asistente y las N acciones
+// propuestas del turno en una sola transacción.
+func (s *pgChatStore) CreatePairWithActions(ctx context.Context, userID uuid.UUID, userText, assistantText string, actions []ProposedAction) (store.AiMessage, []store.AiAction, error) {
 	tx, err := s.pool.Begin(ctx)
 	if err != nil {
-		return store.AiMessage{}, err
+		return store.AiMessage{}, nil, err
 	}
 	defer tx.Rollback(ctx)
 	qtx := s.q.WithTx(tx)
@@ -67,28 +74,43 @@ func (s *pgChatStore) CreatePairWithAction(ctx context.Context, userID uuid.UUID
 	if _, err := qtx.CreateMessage(ctx, store.CreateMessageParams{
 		UserID: userID, Role: "user", Content: userText,
 	}); err != nil {
-		return store.AiMessage{}, err
+		return store.AiMessage{}, nil, err
 	}
-	status := "proposed"
-	assistant, err := qtx.CreateMessageWithAction(ctx, store.CreateMessageWithActionParams{
+	assistant, err := qtx.CreateMessage(ctx, store.CreateMessageParams{
 		UserID: userID, Role: "assistant", Content: assistantText,
-		ActionKind: &kind, ActionPayload: payload, ActionStatus: &status,
 	})
 	if err != nil {
-		return store.AiMessage{}, err
+		return store.AiMessage{}, nil, err
+	}
+	rows := make([]store.AiAction, 0, len(actions))
+	for i, a := range actions {
+		row, err := qtx.CreateAction(ctx, store.CreateActionParams{
+			MessageID: assistant.ID, UserID: userID, Position: int32(i),
+			Kind: a.Kind, Payload: a.Payload, Status: "proposed",
+		})
+		if err != nil {
+			return store.AiMessage{}, nil, err
+		}
+		rows = append(rows, row)
 	}
 	if err := tx.Commit(ctx); err != nil {
-		return store.AiMessage{}, err
+		return store.AiMessage{}, nil, err
 	}
-	return assistant, nil
+	return assistant, rows, nil
 }
 
-// GetMessageForAction y SetActionStatus exponen las queries con el pool simple
-// (sin transacción): la transición atómica la garantiza el WHERE de la query.
-func (s *pgChatStore) GetMessageForAction(ctx context.Context, id, userID uuid.UUID) (store.AiMessage, error) {
-	return s.q.GetMessageForAction(ctx, store.GetMessageForActionParams{ID: id, UserID: userID})
+func (s *pgChatStore) ListActionsByMessages(ctx context.Context, messageIDs []uuid.UUID) ([]store.AiAction, error) {
+	return s.q.ListActionsByMessages(ctx, messageIDs)
 }
 
-func (s *pgChatStore) SetActionStatus(ctx context.Context, id, userID uuid.UUID, status string) (store.AiMessage, error) {
-	return s.q.SetActionStatus(ctx, store.SetActionStatusParams{ID: id, UserID: userID, ActionStatus: &status})
+func (s *pgChatStore) GetAction(ctx context.Context, id, userID uuid.UUID) (store.AiAction, error) {
+	return s.q.GetAction(ctx, store.GetActionParams{ID: id, UserID: userID})
+}
+
+// SetActionStatusFrom transiciona el estado solo si está en from (atómico) y
+// guarda result si no es nil.
+func (s *pgChatStore) SetActionStatusFrom(ctx context.Context, id, userID uuid.UUID, to string, result []byte, from string) (store.AiAction, error) {
+	return s.q.SetActionStatusFrom(ctx, store.SetActionStatusFromParams{
+		ID: id, UserID: userID, Status: to, Result: result, Status_2: from,
+	})
 }

@@ -270,13 +270,17 @@ func proposeViaChat(t *testing.T, e *env, tok string) string {
 		t.Fatal("sin mensajes tras proponer")
 	}
 	last, _ := msgs[len(msgs)-1].(map[string]any)
-	action, _ := last["action"].(map[string]any)
+	actions, _ := last["actions"].([]any)
+	if len(actions) == 0 {
+		t.Fatalf("último mensaje sin acciones: %v", last)
+	}
+	action, _ := actions[0].(map[string]any)
 	if action == nil || action["status"] != "proposed" {
 		t.Fatalf("último mensaje sin acción proposed: %v", last)
 	}
-	id, _ := last["id"].(string)
+	id, _ := action["id"].(string)
 	if id == "" {
-		t.Fatal("mensaje sin id")
+		t.Fatal("acción sin id")
 	}
 	return id
 }
@@ -295,8 +299,7 @@ func TestActionConfirmHappyPath(t *testing.T) {
 	if rec.Code != http.StatusOK {
 		t.Fatalf("confirm code = %d, body = %s", rec.Code, rec.Body.String())
 	}
-	msg, _ := body["message"].(map[string]any)
-	action, _ := msg["action"].(map[string]any)
+	action, _ := body["action"].(map[string]any)
 	if action["status"] != "done" {
 		t.Errorf("status = %v", action)
 	}
@@ -328,8 +331,7 @@ func TestActionCancel(t *testing.T) {
 	if rec.Code != http.StatusOK {
 		t.Fatalf("cancel code = %d", rec.Code)
 	}
-	msg, _ := body["message"].(map[string]any)
-	action, _ := msg["action"].(map[string]any)
+	action, _ := body["action"].(map[string]any)
 	if action["status"] != "cancelled" {
 		t.Errorf("status = %v", action)
 	}
@@ -358,7 +360,8 @@ func TestActionConfirmInvalidPayloadIs400AndStaysProposed(t *testing.T) {
 	_, body := getMessages(t, e.h, tok)
 	msgs, _ := body["messages"].([]any)
 	last, _ := msgs[len(msgs)-1].(map[string]any)
-	action, _ := last["action"].(map[string]any)
+	actions, _ := last["actions"].([]any)
+	action, _ := actions[0].(map[string]any)
 	if action["status"] != "proposed" {
 		t.Errorf("status = %v, want proposed", action["status"])
 	}
@@ -376,8 +379,7 @@ func TestActionCrearHabitoEndToEnd(t *testing.T) {
 	if rec.Code != http.StatusOK {
 		t.Fatalf("confirm code = %d, body = %s", rec.Code, rec.Body.String())
 	}
-	msg, _ := body["message"].(map[string]any)
-	action, _ := msg["action"].(map[string]any)
+	action, _ := body["action"].(map[string]any)
 	if action["status"] != "done" || action["kind"] != "habito_nuevo" {
 		t.Errorf("action = %v", action)
 	}

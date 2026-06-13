@@ -67,7 +67,10 @@ func (e *extractor) extract(ctx context.Context, data []byte, mime, filename str
 		return nil, fmt.Errorf("formato no soportado: %s", mime)
 	}
 	if err != nil {
-		return nil, err
+		// Fallos de red/HTTP de Groq → ErrUnavailable (el handler lo mapea a 503).
+		// Los errores "de negocio" (formato, escaneado, cero movimientos) ya
+		// retornaron antes con mensaje y se mapean a 422.
+		return nil, ErrUnavailable
 	}
 
 	var parsed extractedMovs

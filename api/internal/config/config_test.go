@@ -38,6 +38,7 @@ func TestLoadGroqDefaults(t *testing.T) {
 	t.Setenv("JWT_SECRET", "secret")
 	t.Setenv("GROQ_API_KEY", "")
 	t.Setenv("GROQ_MODEL", "")
+	t.Setenv("GROQ_VISION_MODEL", "")
 
 	cfg, err := Load()
 	if err != nil {
@@ -49,6 +50,9 @@ func TestLoadGroqDefaults(t *testing.T) {
 	if cfg.GroqModel != "llama-3.3-70b-versatile" {
 		t.Errorf("GroqModel default = %q", cfg.GroqModel)
 	}
+	if cfg.GroqVisionModel != "meta-llama/llama-4-scout-17b-16e-instruct" {
+		t.Errorf("GroqVisionModel default = %q", cfg.GroqVisionModel)
+	}
 }
 
 func TestLoadGroqValues(t *testing.T) {
@@ -56,6 +60,7 @@ func TestLoadGroqValues(t *testing.T) {
 	t.Setenv("JWT_SECRET", "secret")
 	t.Setenv("GROQ_API_KEY", "gsk_abc")
 	t.Setenv("GROQ_MODEL", "llama-custom")
+	t.Setenv("GROQ_VISION_MODEL", "vision-custom")
 
 	cfg, err := Load()
 	if err != nil {
@@ -66,5 +71,8 @@ func TestLoadGroqValues(t *testing.T) {
 	}
 	if cfg.GroqModel != "llama-custom" {
 		t.Errorf("GroqModel = %q", cfg.GroqModel)
+	}
+	if cfg.GroqVisionModel != "vision-custom" {
+		t.Errorf("GroqVisionModel = %q", cfg.GroqVisionModel)
 	}
 }

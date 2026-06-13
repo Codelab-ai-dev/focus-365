@@ -30,12 +30,13 @@ func main() {
 	defer pool.Close()
 
 	h := server.New(server.Deps{
-		Pool:         pool,
-		JWTSecret:    cfg.JWTSecret,
-		CORSOrigin:   cfg.CORSOrigin,
-		GroqAPIKey:   cfg.GroqAPIKey,
-		GroqModel:    cfg.GroqModel,
-		CookieSecure: cfg.CookieSecure,
+		Pool:            pool,
+		JWTSecret:       cfg.JWTSecret,
+		CORSOrigin:      cfg.CORSOrigin,
+		GroqAPIKey:      cfg.GroqAPIKey,
+		GroqModel:       cfg.GroqModel,
+		GroqVisionModel: cfg.GroqVisionModel,
+		CookieSecure:    cfg.CookieSecure,
 	})
 
 	log.Printf("Focus 365 API escuchando en :%s", cfg.Port)

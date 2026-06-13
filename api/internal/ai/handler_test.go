@@ -62,11 +62,29 @@ func (f *fakeCompleter) ChatStream(ctx context.Context, system string, history [
 	return full, f.chatToolCalls, nil
 }
 
+// fakeExtract simula el cliente Groq que usa el extractor del ImportService.
+// Satisface estructuralmente la interfaz (sin exportar) extractClient que recibe
+// ai.NewImportService: el tipado estructural de Go cruza paquetes mientras el
+// conjunto de métodos coincida.
+type fakeExtract struct {
+	out string
+	err error
+}
+
+func (f *fakeExtract) ExtractText(ctx context.Context, system, user string) (string, error) {
+	return f.out, f.err
+}
+
+func (f *fakeExtract) ExtractVision(ctx context.Context, system, b64, mime string) (string, error) {
+	return f.out, f.err
+}
+
 type env struct {
-	h    http.Handler
-	auth *auth.Service
-	comp *fakeCompleter
-	q    *store.Queries
+	h       http.Handler
+	auth    *auth.Service
+	comp    *fakeCompleter
+	extract *fakeExtract
+	q       *store.Queries
 }
 
 func newEnv(t *testing.T, hasKey bool, comp *fakeCompleter) *env {
@@ -88,12 +106,16 @@ func newEnv(t *testing.T, hasKey bool, comp *fakeCompleter) *env {
 	actionExec := ai.NewActionExecutor(ci, fi, ha, go_, tr)
 	chatSvc := ai.NewChatService(chatCtx, chatStore, comp, comp, actionExec, hasKey)
 
+	// El extractor real llama a Groq; en tests inyectamos un fake determinista.
+	extract := &fakeExtract{}
+	importSvc := ai.NewImportService(extract, chatStore, hasKey)
+
 	r := chi.NewRouter()
 	r.Group(func(r chi.Router) {
 		r.Use(auth.RequireAuth(tm))
-		r.Mount("/ai", ai.Routes(svc, chatSvc))
+		r.Mount("/ai", ai.Routes(svc, chatSvc, importSvc))
 	})
-	return &env{h: r, auth: auth.NewService(q, tm), comp: comp, q: q}
+	return &env{h: r, auth: auth.NewService(q, tm), comp: comp, extract: extract, q: q}
 }
 
 func (e *env) user(t *testing.T, email string) (uuid.UUID, string) {

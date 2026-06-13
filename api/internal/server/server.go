@@ -19,12 +19,13 @@ import (
 )
 
 type Deps struct {
-	Pool         *pgxpool.Pool
-	JWTSecret    string
-	CORSOrigin   string
-	GroqAPIKey   string
-	GroqModel    string
-	CookieSecure bool
+	Pool            *pgxpool.Pool
+	JWTSecret       string
+	CORSOrigin      string
+	GroqAPIKey      string
+	GroqModel       string
+	GroqVisionModel string
+	CookieSecure    bool
 }
 
 func New(d Deps) http.Handler {
@@ -56,13 +57,14 @@ func New(d Deps) http.Handler {
 			r.Mount("/goals", goals.Routes(goalsSvc))
 			dashboardSvc := dashboard.NewService(checkinSvc, financeSvc, trainingSvc, habitsSvc, goalsSvc)
 			r.Mount("/dashboard", dashboard.Routes(dashboardSvc))
-			groq := ai.NewGroqClient(d.GroqAPIKey, d.GroqModel, d.GroqModel) // TODO Task 5: use d.GroqVisionModel
+			groq := ai.NewGroqClient(d.GroqAPIKey, d.GroqModel, d.GroqVisionModel)
 			aiSvc := ai.NewService(dashboardSvc, q, groq, d.GroqAPIKey != "")
 			chatCtx := ai.NewChatContextBuilder(dashboardSvc, financeSvc, checkinSvc, habitsSvc, goalsSvc)
 			chatStore := ai.NewChatStore(q, d.Pool)
 			actionExec := ai.NewActionExecutor(checkinSvc, financeSvc, habitsSvc, goalsSvc, trainingSvc)
 			chatSvc := ai.NewChatService(chatCtx, chatStore, groq, groq, actionExec, d.GroqAPIKey != "")
-			r.Mount("/ai", ai.Routes(aiSvc, chatSvc))
+			importSvc := ai.NewImportService(groq, chatStore, d.GroqAPIKey != "")
+			r.Mount("/ai", ai.Routes(aiSvc, chatSvc, importSvc))
 		})
 	})
 

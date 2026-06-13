@@ -12,6 +12,24 @@ import (
 	"github.com/google/uuid"
 )
 
+const deleteCheckIn = `-- name: DeleteCheckIn :execrows
+DELETE FROM check_ins
+WHERE user_id = $1 AND date = $2
+`
+
+type DeleteCheckInParams struct {
+	UserID uuid.UUID `json:"user_id"`
+	Date   time.Time `json:"date"`
+}
+
+func (q *Queries) DeleteCheckIn(ctx context.Context, arg DeleteCheckInParams) (int64, error) {
+	result, err := q.db.Exec(ctx, deleteCheckIn, arg.UserID, arg.Date)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
 const getCheckInByDate = `-- name: GetCheckInByDate :one
 SELECT id, user_id, date, mood, energy, discipline, note, created_at, updated_at FROM check_ins
 WHERE user_id = $1 AND date = $2

@@ -19,3 +19,7 @@ SELECT * FROM check_ins
 WHERE user_id = $1
 ORDER BY date DESC
 LIMIT $2;
+
+-- name: DeleteCheckIn :execrows
+DELETE FROM check_ins
+WHERE user_id = $1 AND date = $2;

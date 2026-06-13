@@ -239,10 +239,38 @@ func (s *ChatService) ConfirmAction(ctx context.Context, userID, actionID uuid.U
 	if row.Status != "proposed" {
 		return nil, ErrActionConflict
 	}
-	if err := s.exec.execute(ctx, userID, row.Kind, row.Payload, today); err != nil {
+	result, err := s.exec.execute(ctx, userID, row.Kind, row.Payload, today)
+	if err != nil {
 		return nil, err
 	}
-	upd, err := s.store.SetActionStatusFrom(ctx, actionID, userID, "done", nil, "proposed")
+	upd, err := s.store.SetActionStatusFrom(ctx, actionID, userID, "done", result, "proposed")
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, ErrActionConflict
+		}
+		return nil, err
+	}
+	v := toActionView(upd)
+	return &v, nil
+}
+
+// UndoAction revierte una acción done y la marca undone. Solo transiciona si
+// la reversa fue exitosa; un error real de DB deja la acción en done.
+func (s *ChatService) UndoAction(ctx context.Context, userID, actionID uuid.UUID) (*ActionView, error) {
+	row, err := s.store.GetAction(ctx, actionID, userID)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, ErrActionNotFound
+		}
+		return nil, err
+	}
+	if row.Status != "done" {
+		return nil, ErrActionConflict
+	}
+	if err := s.exec.undo(ctx, userID, row.Kind, row.Payload, row.Result); err != nil {
+		return nil, err
+	}
+	upd, err := s.store.SetActionStatusFrom(ctx, actionID, userID, "undone", nil, "done")
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return nil, ErrActionConflict

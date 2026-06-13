@@ -371,7 +371,7 @@ func TestConfirmActionExecutesAndTransitions(t *testing.T) {
 	groq := &fakeChatGroq{toolCalls: []ToolCall{{Name: "registrar_checkin", Arguments: `{"mood":8,"energy":6,"discipline":9}`}}}
 	st := &memStore{}
 	c := &fakeCheckinSvc{}
-	svc := NewChatService(fakeCtx{out: "{}"}, st, groq, groq, newTestExecutor(c, &fakeFinanceSvc{}, &fakeHabitsSvc{}, &fakeGoalsSvc{}, &fakeHabitCreate{}, &fakeGoalCreate{}, &fakeWorkoutCreate{}), true)
+	svc := NewChatService(fakeCtx{out: "{}"}, st, groq, groq, newTestExecutor(c, &fakeFinanceSvc{}, &fakeHabitsSvc{}, &fakeGoalsSvc{}, &fakeTrainingSvc{}), true)
 	uid := uuid.New()
 	msg := proposeCheckin(t, svc, uid)
 	actionID := uuid.MustParse(msg.Actions[0].ID)
@@ -397,7 +397,7 @@ func TestCancelActionTransitionsWithoutExecuting(t *testing.T) {
 	groq := &fakeChatGroq{toolCalls: []ToolCall{{Name: "registrar_checkin", Arguments: `{"mood":8,"energy":6,"discipline":9}`}}}
 	st := &memStore{}
 	c := &fakeCheckinSvc{}
-	svc := NewChatService(fakeCtx{out: "{}"}, st, groq, groq, newTestExecutor(c, &fakeFinanceSvc{}, &fakeHabitsSvc{}, &fakeGoalsSvc{}, &fakeHabitCreate{}, &fakeGoalCreate{}, &fakeWorkoutCreate{}), true)
+	svc := NewChatService(fakeCtx{out: "{}"}, st, groq, groq, newTestExecutor(c, &fakeFinanceSvc{}, &fakeHabitsSvc{}, &fakeGoalsSvc{}, &fakeTrainingSvc{}), true)
 	uid := uuid.New()
 	msg := proposeCheckin(t, svc, uid)
 
@@ -414,7 +414,7 @@ func TestCancelActionTransitionsWithoutExecuting(t *testing.T) {
 }
 
 func TestConfirmActionNotFound(t *testing.T) {
-	svc := NewChatService(fakeCtx{out: "{}"}, &memStore{}, &fakeChatGroq{}, &fakeChatGroq{}, newTestExecutor(&fakeCheckinSvc{}, &fakeFinanceSvc{}, &fakeHabitsSvc{}, &fakeGoalsSvc{}, &fakeHabitCreate{}, &fakeGoalCreate{}, &fakeWorkoutCreate{}), true)
+	svc := NewChatService(fakeCtx{out: "{}"}, &memStore{}, &fakeChatGroq{}, &fakeChatGroq{}, newTestExecutor(&fakeCheckinSvc{}, &fakeFinanceSvc{}, &fakeHabitsSvc{}, &fakeGoalsSvc{}, &fakeTrainingSvc{}), true)
 	if _, err := svc.ConfirmAction(context.Background(), uuid.New(), uuid.New(), time.Now()); !errors.Is(err, ErrActionNotFound) {
 		t.Errorf("err = %v, want ErrActionNotFound", err)
 	}
@@ -476,7 +476,7 @@ func TestChatSendStreamOneInvalidActionDiscardsAll(t *testing.T) {
 func TestConfirmActionOnPlainMessageIsNotFound(t *testing.T) {
 	groq := &fakeChatGroq{chatDeltas: []string{"hola"}}
 	st := &memStore{}
-	svc := NewChatService(fakeCtx{out: "{}"}, st, groq, groq, newTestExecutor(&fakeCheckinSvc{}, &fakeFinanceSvc{}, &fakeHabitsSvc{}, &fakeGoalsSvc{}, &fakeHabitCreate{}, &fakeGoalCreate{}, &fakeWorkoutCreate{}), true)
+	svc := NewChatService(fakeCtx{out: "{}"}, st, groq, groq, newTestExecutor(&fakeCheckinSvc{}, &fakeFinanceSvc{}, &fakeHabitsSvc{}, &fakeGoalsSvc{}, &fakeTrainingSvc{}), true)
 	uid := uuid.New()
 	msg, err := svc.SendStream(context.Background(), uid, "hola", time.Now(), func(string) {})
 	if err != nil {
@@ -484,5 +484,80 @@ func TestConfirmActionOnPlainMessageIsNotFound(t *testing.T) {
 	}
 	if _, err := svc.ConfirmAction(context.Background(), uid, uuid.MustParse(msg.ID), time.Now()); !errors.Is(err, ErrActionNotFound) {
 		t.Errorf("err = %v, want ErrActionNotFound", err)
+	}
+}
+
+// confirmCheckin propone y confirma un check-in, devolviendo el service, uid y actionID.
+func confirmCheckin(t *testing.T, c *fakeCheckinSvc) (*ChatService, uuid.UUID, uuid.UUID) {
+	t.Helper()
+	groq := &fakeChatGroq{toolCalls: []ToolCall{{Name: "registrar_checkin", Arguments: `{"mood":8,"energy":6,"discipline":9}`}}}
+	svc := NewChatService(fakeCtx{out: "{}"}, &memStore{}, groq, groq, newTestExecutor(c, &fakeFinanceSvc{}, &fakeHabitsSvc{}, &fakeGoalsSvc{}, &fakeTrainingSvc{}), true)
+	uid := uuid.New()
+	msg := proposeCheckin(t, svc, uid)
+	actionID := uuid.MustParse(msg.Actions[0].ID)
+	if _, err := svc.ConfirmAction(context.Background(), uid, actionID, time.Now()); err != nil {
+		t.Fatalf("ConfirmAction: %v", err)
+	}
+	return svc, uid, actionID
+}
+
+func TestUndoActionRevierteYTransiciona(t *testing.T) {
+	c := &fakeCheckinSvc{} // sin previo → undo borra
+	svc, uid, actionID := confirmCheckin(t, c)
+
+	got, err := svc.UndoAction(context.Background(), uid, actionID)
+	if err != nil {
+		t.Fatalf("UndoAction: %v", err)
+	}
+	if got.Status != "undone" {
+		t.Errorf("status = %s, want undone", got.Status)
+	}
+	if !c.deleted {
+		t.Error("undo sin previo debía borrar el check-in")
+	}
+}
+
+func TestUndoActionSoloUnaVez(t *testing.T) {
+	c := &fakeCheckinSvc{}
+	svc, uid, actionID := confirmCheckin(t, c)
+	if _, err := svc.UndoAction(context.Background(), uid, actionID); err != nil {
+		t.Fatalf("primer undo: %v", err)
+	}
+	if _, err := svc.UndoAction(context.Background(), uid, actionID); !errors.Is(err, ErrActionConflict) {
+		t.Errorf("segundo undo err = %v, want ErrActionConflict", err)
+	}
+}
+
+func TestUndoActionDeProposedEsConflicto(t *testing.T) {
+	groq := &fakeChatGroq{toolCalls: []ToolCall{{Name: "registrar_checkin", Arguments: `{"mood":8,"energy":6,"discipline":9}`}}}
+	svc := NewChatService(fakeCtx{out: "{}"}, &memStore{}, groq, groq, newTestExecutor(&fakeCheckinSvc{}, &fakeFinanceSvc{}, &fakeHabitsSvc{}, &fakeGoalsSvc{}, &fakeTrainingSvc{}), true)
+	uid := uuid.New()
+	msg := proposeCheckin(t, svc, uid)
+	actionID := uuid.MustParse(msg.Actions[0].ID)
+	// Sin confirmar: la acción sigue proposed.
+	if _, err := svc.UndoAction(context.Background(), uid, actionID); !errors.Is(err, ErrActionConflict) {
+		t.Errorf("undo de proposed err = %v, want ErrActionConflict", err)
+	}
+}
+
+func TestUndoActionNotFound(t *testing.T) {
+	svc := NewChatService(fakeCtx{out: "{}"}, &memStore{}, &fakeChatGroq{}, &fakeChatGroq{}, newTestExecutor(&fakeCheckinSvc{}, &fakeFinanceSvc{}, &fakeHabitsSvc{}, &fakeGoalsSvc{}, &fakeTrainingSvc{}), true)
+	if _, err := svc.UndoAction(context.Background(), uuid.New(), uuid.New()); !errors.Is(err, ErrActionNotFound) {
+		t.Errorf("err = %v, want ErrActionNotFound", err)
+	}
+}
+
+func TestUndoActionErrorDeDBNoTransiciona(t *testing.T) {
+	// El check-in se confirma sin error; el undo (Delete) falla → sigue done.
+	c := &fakeCheckinSvc{}
+	svc, uid, actionID := confirmCheckin(t, c)
+	c.err = errors.New("db caída") // afecta al Delete del undo
+	if _, err := svc.UndoAction(context.Background(), uid, actionID); err == nil {
+		t.Fatal("esperaba error de DB en el undo")
+	}
+	// La acción sigue done: un segundo undo (sin error) debe poder revertirla.
+	c.err = nil
+	if got, err := svc.UndoAction(context.Background(), uid, actionID); err != nil || got.Status != "undone" {
+		t.Errorf("reintento undo: got %+v err %v", got, err)
 	}
 }

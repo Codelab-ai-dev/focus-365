@@ -2,6 +2,7 @@ package ai
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"strings"
 	"testing"
@@ -152,43 +153,124 @@ func TestBuildChatToolsSiete(t *testing.T) {
 	}
 }
 
-// --- Fakes para el ejecutor ---
+// --- Fakes para el ejecutor (uno por servicio, implementan la interfaz compuesta) ---
 
-type fakeCheckinSvc struct{ in *checkin.Input }
+type fakeCheckinSvc struct {
+	in      *checkin.Input  // último Upsert
+	today   *checkin.CheckIn // lo que devuelve Today()
+	todayN  int             // # llamadas a Today
+	deleted bool            // Delete() fue llamado
+	delDate time.Time       // fecha del Delete
+	delHit  bool            // Delete devuelve (true/false, ...)
+	err     error           // error real de DB para Upsert/Delete
+}
 
 func (f *fakeCheckinSvc) Upsert(ctx context.Context, userID uuid.UUID, in checkin.Input) (*checkin.CheckIn, error) {
+	if f.err != nil {
+		return nil, f.err
+	}
 	f.in = &in
 	return &checkin.CheckIn{}, nil
 }
 
-type fakeFinanceSvc struct{ in *finance.Input }
+func (f *fakeCheckinSvc) Today(ctx context.Context, userID uuid.UUID, date time.Time) (*checkin.CheckIn, error) {
+	f.todayN++
+	return f.today, nil
+}
+
+func (f *fakeCheckinSvc) Delete(ctx context.Context, userID uuid.UUID, date time.Time) (bool, error) {
+	if f.err != nil {
+		return false, f.err
+	}
+	f.deleted, f.delDate = true, date
+	return f.delHit, nil
+}
+
+type fakeFinanceSvc struct {
+	in       *finance.Input
+	txID     string // ID que devuelve Create
+	deletedID uuid.UUID
+	deleted  bool
+	delHit   bool // Delete devuelve este bool
+	err      error
+}
 
 func (f *fakeFinanceSvc) Create(ctx context.Context, userID uuid.UUID, in finance.Input) (*finance.Transaction, error) {
+	if f.err != nil {
+		return nil, f.err
+	}
 	f.in = &in
-	return &finance.Transaction{}, nil
+	return &finance.Transaction{ID: f.txID}, nil
+}
+
+func (f *fakeFinanceSvc) Delete(ctx context.Context, userID, id uuid.UUID) (bool, error) {
+	if f.err != nil {
+		return false, f.err
+	}
+	f.deleted, f.deletedID = true, id
+	return f.delHit, nil
 }
 
 type fakeHabitsSvc struct {
-	habitID  uuid.UUID
-	done     bool
-	notFound bool
+	createIn  *habits.HabitInput
+	createdID string // ID que devuelve Create
+	habitID   uuid.UUID
+	done      bool // último valor de SetCheck.done
+	setN      int  // # llamadas a SetCheck
+	setDate   time.Time
+	notFound  bool // SetCheck devuelve (nil, nil)
+	deletedID uuid.UUID
+	deleted   bool
+	delHit    bool
+	err       error
 }
 
 func (f *fakeHabitsSvc) SetCheck(ctx context.Context, userID, habitID uuid.UUID, day time.Time, done bool, today time.Time) (*habits.Habit, error) {
+	if f.err != nil {
+		return nil, f.err
+	}
 	if f.notFound {
 		return nil, nil
 	}
-	f.habitID, f.done = habitID, done
+	f.habitID, f.done, f.setDate = habitID, done, day
+	f.setN++
 	return &habits.Habit{}, nil
 }
 
+func (f *fakeHabitsSvc) Create(ctx context.Context, userID uuid.UUID, in habits.HabitInput, today time.Time) (*habits.Habit, error) {
+	if f.err != nil {
+		return nil, f.err
+	}
+	f.createIn = &in
+	return &habits.Habit{ID: f.createdID}, nil
+}
+
+func (f *fakeHabitsSvc) Delete(ctx context.Context, userID, habitID uuid.UUID) (bool, error) {
+	if f.err != nil {
+		return false, f.err
+	}
+	f.deleted, f.deletedID = true, habitID
+	return f.delHit, nil
+}
+
 type fakeGoalsSvc struct {
-	goalID   uuid.UUID
-	progress *int32
-	notFound bool
+	createIn  *goals.GoalInput
+	createdID string // ID que devuelve Create
+	goalID    uuid.UUID
+	progress  *int32 // último Patch.Progress
+	notFound  bool   // Patch devuelve (nil, nil)
+	list      []goals.Goal // lo que devuelve List()
+	listN     int
+	deletedID uuid.UUID
+	deleted   bool
+	delHit    bool
+	err       error
 }
 
 func (f *fakeGoalsSvc) Patch(ctx context.Context, userID, id uuid.UUID, p goals.GoalPatch, today time.Time) (*goals.Goal, error) {
+	if f.err != nil {
+		return nil, f.err
+	}
 	if f.notFound {
 		return nil, nil
 	}
@@ -196,39 +278,62 @@ func (f *fakeGoalsSvc) Patch(ctx context.Context, userID, id uuid.UUID, p goals.
 	return &goals.Goal{}, nil
 }
 
-type fakeHabitCreate struct{ in *habits.HabitInput }
-
-func (f *fakeHabitCreate) Create(ctx context.Context, userID uuid.UUID, in habits.HabitInput, today time.Time) (*habits.Habit, error) {
-	f.in = &in
-	return &habits.Habit{}, nil
+func (f *fakeGoalsSvc) Create(ctx context.Context, userID uuid.UUID, in goals.GoalInput, today time.Time) (*goals.Goal, error) {
+	if f.err != nil {
+		return nil, f.err
+	}
+	f.createIn = &in
+	return &goals.Goal{ID: f.createdID}, nil
 }
 
-type fakeGoalCreate struct{ in *goals.GoalInput }
-
-func (f *fakeGoalCreate) Create(ctx context.Context, userID uuid.UUID, in goals.GoalInput, today time.Time) (*goals.Goal, error) {
-	f.in = &in
-	return &goals.Goal{}, nil
+func (f *fakeGoalsSvc) Delete(ctx context.Context, userID, id uuid.UUID) (bool, error) {
+	if f.err != nil {
+		return false, f.err
+	}
+	f.deleted, f.deletedID = true, id
+	return f.delHit, nil
 }
 
-type fakeWorkoutCreate struct{ in *training.WorkoutInput }
-
-func (f *fakeWorkoutCreate) CreateWorkout(ctx context.Context, userID uuid.UUID, in training.WorkoutInput) (*training.Workout, error) {
-	f.in = &in
-	return &training.Workout{}, nil
+func (f *fakeGoalsSvc) List(ctx context.Context, userID uuid.UUID, status string, today time.Time) ([]goals.Goal, error) {
+	f.listN++
+	return f.list, nil
 }
 
-func newTestExecutor(c *fakeCheckinSvc, fin *fakeFinanceSvc, h *fakeHabitsSvc, g *fakeGoalsSvc,
-	hc *fakeHabitCreate, gc *fakeGoalCreate, wc *fakeWorkoutCreate) *actionExecutor {
-	return &actionExecutor{checkin: c, finance: fin, habits: h, goals: g,
-		habitCreate: hc, goalCreate: gc, workouts: wc}
+type fakeTrainingSvc struct {
+	createIn  *training.WorkoutInput
+	createdID string // ID que devuelve CreateWorkout
+	deletedID uuid.UUID
+	deleted   bool
+	delHit    bool
+	err       error
+}
+
+func (f *fakeTrainingSvc) CreateWorkout(ctx context.Context, userID uuid.UUID, in training.WorkoutInput) (*training.Workout, error) {
+	if f.err != nil {
+		return nil, f.err
+	}
+	f.createIn = &in
+	return &training.Workout{ID: f.createdID}, nil
+}
+
+func (f *fakeTrainingSvc) DeleteWorkout(ctx context.Context, userID, id uuid.UUID) (bool, error) {
+	if f.err != nil {
+		return false, f.err
+	}
+	f.deleted, f.deletedID = true, id
+	return f.delHit, nil
+}
+
+func newTestExecutor(c *fakeCheckinSvc, fin *fakeFinanceSvc, h *fakeHabitsSvc, g *fakeGoalsSvc, tr *fakeTrainingSvc) *actionExecutor {
+	return &actionExecutor{checkin: c, finance: fin, habits: h, goals: g, training: tr}
 }
 
 func TestExecutorCheckin(t *testing.T) {
 	c := &fakeCheckinSvc{}
-	ex := newTestExecutor(c, &fakeFinanceSvc{}, &fakeHabitsSvc{}, &fakeGoalsSvc{}, &fakeHabitCreate{}, &fakeGoalCreate{}, &fakeWorkoutCreate{})
+	ex := newTestExecutor(c, &fakeFinanceSvc{}, &fakeHabitsSvc{}, &fakeGoalsSvc{}, &fakeTrainingSvc{})
 	today := time.Date(2026, 6, 11, 0, 0, 0, 0, time.UTC)
 
-	err := ex.execute(context.Background(), uuid.New(), "checkin",
+	_, err := ex.execute(context.Background(), uuid.New(), "checkin",
 		[]byte(`{"mood":8,"energy":6,"discipline":9,"note":"ok"}`), today)
 	if err != nil {
 		t.Fatalf("execute: %v", err)
@@ -240,10 +345,10 @@ func TestExecutorCheckin(t *testing.T) {
 
 func TestExecutorMovimiento(t *testing.T) {
 	fin := &fakeFinanceSvc{}
-	ex := newTestExecutor(&fakeCheckinSvc{}, fin, &fakeHabitsSvc{}, &fakeGoalsSvc{}, &fakeHabitCreate{}, &fakeGoalCreate{}, &fakeWorkoutCreate{})
+	ex := newTestExecutor(&fakeCheckinSvc{}, fin, &fakeHabitsSvc{}, &fakeGoalsSvc{}, &fakeTrainingSvc{})
 	today := time.Date(2026, 6, 11, 0, 0, 0, 0, time.UTC)
 
-	if err := ex.execute(context.Background(), uuid.New(), "movimiento",
+	if _, err := ex.execute(context.Background(), uuid.New(), "movimiento",
 		[]byte(`{"type":"expense","amount_centavos":2500000,"category":"comida"}`), today); err != nil {
 		t.Fatalf("execute: %v", err)
 	}
@@ -253,8 +358,8 @@ func TestExecutorMovimiento(t *testing.T) {
 }
 
 func TestExecutorHabitoNotFound(t *testing.T) {
-	ex := newTestExecutor(&fakeCheckinSvc{}, &fakeFinanceSvc{}, &fakeHabitsSvc{notFound: true}, &fakeGoalsSvc{}, &fakeHabitCreate{}, &fakeGoalCreate{}, &fakeWorkoutCreate{})
-	err := ex.execute(context.Background(), uuid.New(), "habito",
+	ex := newTestExecutor(&fakeCheckinSvc{}, &fakeFinanceSvc{}, &fakeHabitsSvc{notFound: true}, &fakeGoalsSvc{}, &fakeTrainingSvc{})
+	_, err := ex.execute(context.Background(), uuid.New(), "habito",
 		[]byte(`{"habit_id":"3b39c1f1-58a6-4012-9b69-0a3f4f6f3a11"}`), time.Now())
 	if !errors.Is(err, ErrActionInvalid) {
 		t.Errorf("err = %v, want ErrActionInvalid", err)
@@ -263,8 +368,8 @@ func TestExecutorHabitoNotFound(t *testing.T) {
 
 func TestExecutorMeta(t *testing.T) {
 	g := &fakeGoalsSvc{}
-	ex := newTestExecutor(&fakeCheckinSvc{}, &fakeFinanceSvc{}, &fakeHabitsSvc{}, g, &fakeHabitCreate{}, &fakeGoalCreate{}, &fakeWorkoutCreate{})
-	if err := ex.execute(context.Background(), uuid.New(), "meta",
+	ex := newTestExecutor(&fakeCheckinSvc{}, &fakeFinanceSvc{}, &fakeHabitsSvc{}, g, &fakeTrainingSvc{})
+	if _, err := ex.execute(context.Background(), uuid.New(), "meta",
 		[]byte(`{"goal_id":"3b39c1f1-58a6-4012-9b69-0a3f4f6f3a11","progress":60}`), time.Now()); err != nil {
 		t.Fatalf("execute: %v", err)
 	}
@@ -274,69 +379,266 @@ func TestExecutorMeta(t *testing.T) {
 }
 
 func TestExecutorPayloadInvalido(t *testing.T) {
-	ex := newTestExecutor(&fakeCheckinSvc{}, &fakeFinanceSvc{}, &fakeHabitsSvc{}, &fakeGoalsSvc{}, &fakeHabitCreate{}, &fakeGoalCreate{}, &fakeWorkoutCreate{})
-	err := ex.execute(context.Background(), uuid.New(), "checkin", []byte(`{"mood":99}`), time.Now())
+	ex := newTestExecutor(&fakeCheckinSvc{}, &fakeFinanceSvc{}, &fakeHabitsSvc{}, &fakeGoalsSvc{}, &fakeTrainingSvc{})
+	_, err := ex.execute(context.Background(), uuid.New(), "checkin", []byte(`{"mood":99}`), time.Now())
 	if !errors.Is(err, ErrActionInvalid) {
 		t.Errorf("err = %v, want ErrActionInvalid", err)
 	}
 }
 
 func TestExecutorHabitoNuevo(t *testing.T) {
-	hc := &fakeHabitCreate{}
-	ex := newTestExecutor(&fakeCheckinSvc{}, &fakeFinanceSvc{}, &fakeHabitsSvc{}, &fakeGoalsSvc{}, hc, &fakeGoalCreate{}, &fakeWorkoutCreate{})
-	if err := ex.execute(context.Background(), uuid.New(), "habito_nuevo",
+	hc := &fakeHabitsSvc{}
+	ex := newTestExecutor(&fakeCheckinSvc{}, &fakeFinanceSvc{}, hc, &fakeGoalsSvc{}, &fakeTrainingSvc{})
+	if _, err := ex.execute(context.Background(), uuid.New(), "habito_nuevo",
 		[]byte(`{"name":"Leer 30 min","target_days":21}`), time.Now()); err != nil {
 		t.Fatalf("execute: %v", err)
 	}
-	if hc.in == nil || hc.in.Name != "Leer 30 min" || hc.in.TargetDays == nil || *hc.in.TargetDays != 21 {
-		t.Errorf("input = %+v", hc.in)
+	if hc.createIn == nil || hc.createIn.Name != "Leer 30 min" || hc.createIn.TargetDays == nil || *hc.createIn.TargetDays != 21 {
+		t.Errorf("input = %+v", hc.createIn)
 	}
 }
 
 func TestExecutorMetaNuevaConDeadline(t *testing.T) {
-	gc := &fakeGoalCreate{}
-	ex := newTestExecutor(&fakeCheckinSvc{}, &fakeFinanceSvc{}, &fakeHabitsSvc{}, &fakeGoalsSvc{}, &fakeHabitCreate{}, gc, &fakeWorkoutCreate{})
-	if err := ex.execute(context.Background(), uuid.New(), "meta_nueva",
+	gc := &fakeGoalsSvc{}
+	ex := newTestExecutor(&fakeCheckinSvc{}, &fakeFinanceSvc{}, &fakeHabitsSvc{}, gc, &fakeTrainingSvc{})
+	if _, err := ex.execute(context.Background(), uuid.New(), "meta_nueva",
 		[]byte(`{"title":"Ahorrar 50k","dimension":"finanzas","deadline":"2026-12-01"}`), time.Now()); err != nil {
 		t.Fatalf("execute: %v", err)
 	}
-	if gc.in == nil || gc.in.Title != "Ahorrar 50k" || gc.in.Dimension != "finanzas" {
-		t.Fatalf("input = %+v", gc.in)
+	if gc.createIn == nil || gc.createIn.Title != "Ahorrar 50k" || gc.createIn.Dimension != "finanzas" {
+		t.Fatalf("input = %+v", gc.createIn)
 	}
-	if gc.in.Deadline == nil || gc.in.Deadline.Format("2006-01-02") != "2026-12-01" {
-		t.Errorf("deadline = %v", gc.in.Deadline)
+	if gc.createIn.Deadline == nil || gc.createIn.Deadline.Format("2006-01-02") != "2026-12-01" {
+		t.Errorf("deadline = %v", gc.createIn.Deadline)
 	}
 }
 
 func TestExecutorEntrenamientoConvierteKgAGramos(t *testing.T) {
-	wc := &fakeWorkoutCreate{}
-	ex := newTestExecutor(&fakeCheckinSvc{}, &fakeFinanceSvc{}, &fakeHabitsSvc{}, &fakeGoalsSvc{}, &fakeHabitCreate{}, &fakeGoalCreate{}, wc)
+	wc := &fakeTrainingSvc{}
+	ex := newTestExecutor(&fakeCheckinSvc{}, &fakeFinanceSvc{}, &fakeHabitsSvc{}, &fakeGoalsSvc{}, wc)
 	today := time.Date(2026, 6, 12, 0, 0, 0, 0, time.UTC)
-	if err := ex.execute(context.Background(), uuid.New(), "entrenamiento",
+	if _, err := ex.execute(context.Background(), uuid.New(), "entrenamiento",
 		[]byte(`{"type":"fuerza","sets":[{"exercise":"press banca","reps":8,"weight_kg":60},{"exercise":"plancha"}]}`), today); err != nil {
 		t.Fatalf("execute: %v", err)
 	}
-	if wc.in == nil || wc.in.Type != "fuerza" || !wc.in.Date.Equal(today) || len(wc.in.Sets) != 2 {
-		t.Fatalf("input = %+v", wc.in)
+	if wc.createIn == nil || wc.createIn.Type != "fuerza" || !wc.createIn.Date.Equal(today) || len(wc.createIn.Sets) != 2 {
+		t.Fatalf("input = %+v", wc.createIn)
 	}
-	s0 := wc.in.Sets[0]
+	s0 := wc.createIn.Sets[0]
 	if s0.Exercise != "press banca" || s0.Reps == nil || *s0.Reps != 8 || s0.WeightGrams == nil || *s0.WeightGrams != 60000 {
 		t.Errorf("set 0 = %+v", s0)
 	}
-	s1 := wc.in.Sets[1]
+	s1 := wc.createIn.Sets[1]
 	if s1.Reps != nil || s1.WeightGrams != nil {
 		t.Errorf("set 1 debe ir sin reps/peso: %+v", s1)
 	}
 }
 
 func TestExecutorEntrenamientoRedondeaGramos(t *testing.T) {
-	wc := &fakeWorkoutCreate{}
-	ex := newTestExecutor(&fakeCheckinSvc{}, &fakeFinanceSvc{}, &fakeHabitsSvc{}, &fakeGoalsSvc{}, &fakeHabitCreate{}, &fakeGoalCreate{}, wc)
-	if err := ex.execute(context.Background(), uuid.New(), "entrenamiento",
+	wc := &fakeTrainingSvc{}
+	ex := newTestExecutor(&fakeCheckinSvc{}, &fakeFinanceSvc{}, &fakeHabitsSvc{}, &fakeGoalsSvc{}, wc)
+	if _, err := ex.execute(context.Background(), uuid.New(), "entrenamiento",
 		[]byte(`{"type":"fuerza","sets":[{"exercise":"x","weight_kg":60.5499}]}`), time.Now()); err != nil {
 		t.Fatalf("execute: %v", err)
 	}
-	if g := wc.in.Sets[0].WeightGrams; g == nil || *g != 60550 {
+	if g := wc.createIn.Sets[0].WeightGrams; g == nil || *g != 60550 {
 		t.Errorf("gramos = %v, want 60550 (redondeo, no truncado)", g)
+	}
+}
+
+// --- execute devuelve result por kind ---
+
+func TestExecutorCheckinResultGuardaPrevYFecha(t *testing.T) {
+	today := time.Date(2026, 6, 12, 0, 0, 0, 0, time.UTC)
+	// Caso A: sin check-in previo → prev null.
+	c := &fakeCheckinSvc{}
+	ex := newTestExecutor(c, &fakeFinanceSvc{}, &fakeHabitsSvc{}, &fakeGoalsSvc{}, &fakeTrainingSvc{})
+	res, err := ex.execute(context.Background(), uuid.New(), "checkin",
+		[]byte(`{"mood":8,"energy":7,"discipline":9}`), today)
+	if err != nil {
+		t.Fatalf("execute A: %v", err)
+	}
+	var rA checkinResult
+	if err := json.Unmarshal(res, &rA); err != nil {
+		t.Fatalf("unmarshal A: %v", err)
+	}
+	if rA.Prev != nil {
+		t.Errorf("prev A = %+v, want nil", rA.Prev)
+	}
+	if rA.Date != "2026-06-12" {
+		t.Errorf("date A = %q", rA.Date)
+	}
+	if c.todayN != 1 {
+		t.Errorf("Today llamado %d veces, want 1", c.todayN)
+	}
+
+	// Caso B: con check-in previo → prev poblado.
+	c2 := &fakeCheckinSvc{today: &checkin.CheckIn{Mood: 5, Energy: 4, Discipline: 6, Note: "meh"}}
+	ex2 := newTestExecutor(c2, &fakeFinanceSvc{}, &fakeHabitsSvc{}, &fakeGoalsSvc{}, &fakeTrainingSvc{})
+	res2, err := ex2.execute(context.Background(), uuid.New(), "checkin",
+		[]byte(`{"mood":8,"energy":7,"discipline":9}`), today)
+	if err != nil {
+		t.Fatalf("execute B: %v", err)
+	}
+	var rB checkinResult
+	if err := json.Unmarshal(res2, &rB); err != nil {
+		t.Fatalf("unmarshal B: %v", err)
+	}
+	if rB.Prev == nil || rB.Prev.Mood != 5 || rB.Prev.Energy != 4 || rB.Prev.Discipline != 6 || rB.Prev.Note != "meh" {
+		t.Errorf("prev B = %+v", rB.Prev)
+	}
+}
+
+func TestExecutorMovimientoResultGuardaTxID(t *testing.T) {
+	fin := &fakeFinanceSvc{txID: "tx-1"}
+	ex := newTestExecutor(&fakeCheckinSvc{}, fin, &fakeHabitsSvc{}, &fakeGoalsSvc{}, &fakeTrainingSvc{})
+	res, err := ex.execute(context.Background(), uuid.New(), "movimiento",
+		[]byte(`{"type":"expense","amount_centavos":100,"category":"x"}`), time.Now())
+	if err != nil {
+		t.Fatalf("execute: %v", err)
+	}
+	var r idResult
+	if err := json.Unmarshal(res, &r); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if r.ID != "tx-1" {
+		t.Errorf("tx_id = %q, want tx-1", r.ID)
+	}
+}
+
+// --- undo por kind ---
+
+const undoUUID = "3b39c1f1-58a6-4012-9b69-0a3f4f6f3a11"
+
+func TestUndoCheckinRestauraPrevio(t *testing.T) {
+	c := &fakeCheckinSvc{}
+	ex := newTestExecutor(c, &fakeFinanceSvc{}, &fakeHabitsSvc{}, &fakeGoalsSvc{}, &fakeTrainingSvc{})
+	result := []byte(`{"prev":{"mood":5,"energy":4,"discipline":6,"note":"meh"},"date":"2026-06-10"}`)
+	if err := ex.undo(context.Background(), uuid.New(), "checkin", nil, result); err != nil {
+		t.Fatalf("undo: %v", err)
+	}
+	if c.in == nil || c.in.Mood != 5 || c.in.Energy != 4 || c.in.Discipline != 6 || c.in.Note != "meh" {
+		t.Errorf("upsert prev = %+v", c.in)
+	}
+	if c.in.Date.Format("2006-01-02") != "2026-06-10" {
+		t.Errorf("fecha = %s, want fecha del result", c.in.Date)
+	}
+	if c.deleted {
+		t.Error("no debía borrar habiendo previo")
+	}
+}
+
+func TestUndoCheckinSinPrevioBorra(t *testing.T) {
+	c := &fakeCheckinSvc{}
+	ex := newTestExecutor(c, &fakeFinanceSvc{}, &fakeHabitsSvc{}, &fakeGoalsSvc{}, &fakeTrainingSvc{})
+	result := []byte(`{"prev":null,"date":"2026-06-10"}`)
+	if err := ex.undo(context.Background(), uuid.New(), "checkin", nil, result); err != nil {
+		t.Fatalf("undo: %v", err)
+	}
+	if !c.deleted || c.delDate.Format("2006-01-02") != "2026-06-10" {
+		t.Errorf("delete = %v, fecha %s", c.deleted, c.delDate)
+	}
+	if c.in != nil {
+		t.Error("no debía hacer upsert sin previo")
+	}
+}
+
+func TestUndoMovimientoBorraYToleraInexistente(t *testing.T) {
+	fin := &fakeFinanceSvc{delHit: false} // Delete devuelve false (ya no existe)
+	ex := newTestExecutor(&fakeCheckinSvc{}, fin, &fakeHabitsSvc{}, &fakeGoalsSvc{}, &fakeTrainingSvc{})
+	result := []byte(`{"id":"` + undoUUID + `"}`)
+	if err := ex.undo(context.Background(), uuid.New(), "movimiento", nil, result); err != nil {
+		t.Fatalf("undo: %v (false debe tolerarse)", err)
+	}
+	if !fin.deleted || fin.deletedID.String() != undoUUID {
+		t.Errorf("delete = %v id %s", fin.deleted, fin.deletedID)
+	}
+}
+
+func TestUndoHabitoDesmarca(t *testing.T) {
+	h := &fakeHabitsSvc{}
+	ex := newTestExecutor(&fakeCheckinSvc{}, &fakeFinanceSvc{}, h, &fakeGoalsSvc{}, &fakeTrainingSvc{})
+	result := []byte(`{"habit_id":"` + undoUUID + `","date":"2026-06-10"}`)
+	if err := ex.undo(context.Background(), uuid.New(), "habito", nil, result); err != nil {
+		t.Fatalf("undo: %v", err)
+	}
+	if h.done {
+		t.Error("debía desmarcar (done=false)")
+	}
+	if h.setN != 1 || h.habitID.String() != undoUUID || h.setDate.Format("2006-01-02") != "2026-06-10" {
+		t.Errorf("SetCheck n=%d id=%s date=%s", h.setN, h.habitID, h.setDate)
+	}
+}
+
+func TestUndoMetaRestauraProgreso(t *testing.T) {
+	g := &fakeGoalsSvc{}
+	ex := newTestExecutor(&fakeCheckinSvc{}, &fakeFinanceSvc{}, &fakeHabitsSvc{}, g, &fakeTrainingSvc{})
+	result := []byte(`{"prev_progress":42,"goal_id":"` + undoUUID + `"}`)
+	if err := ex.undo(context.Background(), uuid.New(), "meta", nil, result); err != nil {
+		t.Fatalf("undo: %v", err)
+	}
+	if g.progress == nil || *g.progress != 42 {
+		t.Errorf("progress restaurado = %v, want 42", g.progress)
+	}
+
+	// Meta inexistente (Patch nil,nil) → undone igual.
+	g2 := &fakeGoalsSvc{notFound: true}
+	ex2 := newTestExecutor(&fakeCheckinSvc{}, &fakeFinanceSvc{}, &fakeHabitsSvc{}, g2, &fakeTrainingSvc{})
+	if err := ex2.undo(context.Background(), uuid.New(), "meta", nil, result); err != nil {
+		t.Errorf("undo meta inexistente = %v, want nil", err)
+	}
+}
+
+func TestUndoCreacionesBorran(t *testing.T) {
+	result := []byte(`{"id":"` + undoUUID + `"}`)
+	t.Run("habito_nuevo", func(t *testing.T) {
+		h := &fakeHabitsSvc{delHit: true}
+		ex := newTestExecutor(&fakeCheckinSvc{}, &fakeFinanceSvc{}, h, &fakeGoalsSvc{}, &fakeTrainingSvc{})
+		if err := ex.undo(context.Background(), uuid.New(), "habito_nuevo", nil, result); err != nil {
+			t.Fatalf("undo: %v", err)
+		}
+		if !h.deleted || h.deletedID.String() != undoUUID {
+			t.Errorf("delete = %v id %s", h.deleted, h.deletedID)
+		}
+	})
+	t.Run("meta_nueva", func(t *testing.T) {
+		g := &fakeGoalsSvc{delHit: true}
+		ex := newTestExecutor(&fakeCheckinSvc{}, &fakeFinanceSvc{}, &fakeHabitsSvc{}, g, &fakeTrainingSvc{})
+		if err := ex.undo(context.Background(), uuid.New(), "meta_nueva", nil, result); err != nil {
+			t.Fatalf("undo: %v", err)
+		}
+		if !g.deleted || g.deletedID.String() != undoUUID {
+			t.Errorf("delete = %v id %s", g.deleted, g.deletedID)
+		}
+	})
+	t.Run("entrenamiento", func(t *testing.T) {
+		tr := &fakeTrainingSvc{delHit: false} // inexistente tolerado
+		ex := newTestExecutor(&fakeCheckinSvc{}, &fakeFinanceSvc{}, &fakeHabitsSvc{}, &fakeGoalsSvc{}, tr)
+		if err := ex.undo(context.Background(), uuid.New(), "entrenamiento", nil, result); err != nil {
+			t.Fatalf("undo: %v", err)
+		}
+		if !tr.deleted || tr.deletedID.String() != undoUUID {
+			t.Errorf("delete = %v id %s", tr.deleted, tr.deletedID)
+		}
+	})
+}
+
+func TestUndoResultCorrupto(t *testing.T) {
+	ex := newTestExecutor(&fakeCheckinSvc{}, &fakeFinanceSvc{}, &fakeHabitsSvc{}, &fakeGoalsSvc{}, &fakeTrainingSvc{})
+	if err := ex.undo(context.Background(), uuid.New(), "movimiento", nil, []byte(`{"id":"no-uuid"}`)); !errors.Is(err, ErrActionInvalid) {
+		t.Errorf("err = %v, want ErrActionInvalid", err)
+	}
+	if err := ex.undo(context.Background(), uuid.New(), "checkin", nil, []byte(`{bad`)); !errors.Is(err, ErrActionInvalid) {
+		t.Errorf("checkin corrupto err = %v, want ErrActionInvalid", err)
+	}
+}
+
+func TestUndoErrorDeDBSePropaga(t *testing.T) {
+	dbErr := errors.New("db caída")
+	fin := &fakeFinanceSvc{err: dbErr}
+	ex := newTestExecutor(&fakeCheckinSvc{}, fin, &fakeHabitsSvc{}, &fakeGoalsSvc{}, &fakeTrainingSvc{})
+	result := []byte(`{"id":"` + undoUUID + `"}`)
+	if err := ex.undo(context.Background(), uuid.New(), "movimiento", nil, result); !errors.Is(err, dbErr) {
+		t.Errorf("err = %v, want db caída", err)
 	}
 }

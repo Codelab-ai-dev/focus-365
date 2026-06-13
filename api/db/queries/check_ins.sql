@@ -1,12 +1,29 @@
 -- name: UpsertCheckIn :one
-INSERT INTO check_ins (user_id, date, mood, energy, discipline, note)
-VALUES ($1, $2, $3, $4, $5, $6)
+INSERT INTO check_ins (user_id, date, mood, energy,
+    dim_espiritual, dim_emocional, dim_fisica, dim_financiera, win, avoided, commitments)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
 ON CONFLICT (user_id, date)
 DO UPDATE SET
     mood = EXCLUDED.mood,
     energy = EXCLUDED.energy,
-    discipline = EXCLUDED.discipline,
-    note = EXCLUDED.note,
+    dim_espiritual = EXCLUDED.dim_espiritual,
+    dim_emocional = EXCLUDED.dim_emocional,
+    dim_fisica = EXCLUDED.dim_fisica,
+    dim_financiera = EXCLUDED.dim_financiera,
+    win = EXCLUDED.win,
+    avoided = EXCLUDED.avoided,
+    commitments = EXCLUDED.commitments,
+    updated_at = now()
+RETURNING *;
+
+-- name: UpsertCheckInMetrics :one
+-- Upsert parcial: solo mood/energy, sin tocar reflexiones (lo usa la IA).
+INSERT INTO check_ins (user_id, date, mood, energy)
+VALUES ($1, $2, $3, $4)
+ON CONFLICT (user_id, date)
+DO UPDATE SET
+    mood = EXCLUDED.mood,
+    energy = EXCLUDED.energy,
     updated_at = now()
 RETURNING *;
 

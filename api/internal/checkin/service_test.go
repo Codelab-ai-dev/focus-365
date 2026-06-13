@@ -34,7 +34,7 @@ func TestServiceUpsertTodayList(t *testing.T) {
 
 	// Upsert y verificar formato de fecha.
 	ci, err := svc.Upsert(ctx, user.ID, checkin.Input{
-		Date: date, Mood: 7, Energy: 6, Discipline: 8, Note: "ok",
+		Date: date, Mood: 7, Energy: 6, Win: "ok",
 	})
 	if err != nil {
 		t.Fatalf("Upsert: %v", err)
@@ -51,13 +51,13 @@ func TestServiceUpsertTodayList(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Today: %v", err)
 	}
-	if got == nil || got.Note != "ok" {
-		t.Errorf("Today = %+v, want note=ok", got)
+	if got == nil || got.Win != "ok" {
+		t.Errorf("Today = %+v, want win=ok", got)
 	}
 
 	// Upsert para la misma fecha actualiza la misma fila (sin duplicar).
 	ci2, err := svc.Upsert(ctx, user.ID, checkin.Input{
-		Date: date, Mood: 3, Energy: 6, Discipline: 8, Note: "ok",
+		Date: date, Mood: 3, Energy: 6, Win: "ok",
 	})
 	if err != nil {
 		t.Fatalf("Upsert mismo día: %v", err)
@@ -72,7 +72,7 @@ func TestServiceUpsertTodayList(t *testing.T) {
 	// Segundo check-in en fecha anterior para verificar orden descendente.
 	earlier := time.Date(2026, 6, 9, 0, 0, 0, 0, time.UTC)
 	if _, err := svc.Upsert(ctx, user.ID, checkin.Input{
-		Date: earlier, Mood: 5, Energy: 5, Discipline: 5, Note: "ayer",
+		Date: earlier, Mood: 5, Energy: 5, Win: "ayer",
 	}); err != nil {
 		t.Fatalf("Upsert fecha anterior: %v", err)
 	}
@@ -105,7 +105,7 @@ func TestDeleteCheckIn(t *testing.T) {
 
 	// 1. Upsert de un check-in del día.
 	if _, err := svc.Upsert(ctx, user.ID, checkin.Input{
-		Date: date, Mood: 8, Energy: 7, Discipline: 9, Note: "test",
+		Date: date, Mood: 8, Energy: 7, Win: "test",
 	}); err != nil {
 		t.Fatalf("Upsert: %v", err)
 	}
@@ -150,5 +150,93 @@ func TestDeleteCheckIn(t *testing.T) {
 	}
 	if deletedOther {
 		t.Error("Delete de otro usuario sin check-in debería devolver false")
+	}
+}
+
+func TestUpsertFullRoundTrip(t *testing.T) {
+	pool := testutil.NewDB(t)
+	q := store.New(pool)
+	svc := checkin.NewService(q)
+	ctx := context.Background()
+
+	user, err := q.CreateUser(ctx, store.CreateUserParams{Email: "full@b.com", PasswordHash: "h", Name: "Full"})
+	if err != nil {
+		t.Fatalf("CreateUser: %v", err)
+	}
+	userID := user.ID
+	date := time.Date(2026, 6, 13, 0, 0, 0, 0, time.UTC)
+
+	in := checkin.Input{
+		Date: date, Mood: 8, Energy: 7,
+		Espiritual: "día 3 del reto", Emocional: "llegaron mis hijas",
+		Fisica: "rutina de piernas", Financiera: "0 gastos",
+		Win: "ver a mis hijas", Avoided: "0 alcohol",
+		Commitments: []string{"Tender la cama", "Pasear a Ruffo"},
+	}
+	ci, err := svc.Upsert(ctx, userID, in)
+	if err != nil {
+		t.Fatalf("Upsert: %v", err)
+	}
+	if ci.Mood != 8 || ci.Espiritual != "día 3 del reto" || ci.Win != "ver a mis hijas" {
+		t.Errorf("ci = %+v", ci)
+	}
+	if len(ci.Commitments) != 2 || ci.Commitments[0] != "Tender la cama" {
+		t.Errorf("commitments = %v", ci.Commitments)
+	}
+}
+
+func TestUpsertMetricsPreservaReflexiones(t *testing.T) {
+	pool := testutil.NewDB(t)
+	q := store.New(pool)
+	svc := checkin.NewService(q)
+	ctx := context.Background()
+
+	user, err := q.CreateUser(ctx, store.CreateUserParams{Email: "metrics@b.com", PasswordHash: "h", Name: "M"})
+	if err != nil {
+		t.Fatalf("CreateUser: %v", err)
+	}
+	userID := user.ID
+	date := time.Date(2026, 6, 13, 0, 0, 0, 0, time.UTC)
+
+	// 1. Upsert completo con reflexiones.
+	_, err = svc.Upsert(ctx, userID, checkin.Input{
+		Date: date, Mood: 5, Energy: 5, Espiritual: "reflexión previa",
+		Commitments: []string{"x"},
+	})
+	if err != nil {
+		t.Fatalf("Upsert: %v", err)
+	}
+	// 2. UpsertMetrics solo cambia mood/energy.
+	ci, err := svc.UpsertMetrics(ctx, userID, date, 9, 8)
+	if err != nil {
+		t.Fatalf("UpsertMetrics: %v", err)
+	}
+	if ci.Mood != 9 || ci.Energy != 8 {
+		t.Errorf("métricas no actualizadas: %+v", ci)
+	}
+	if ci.Espiritual != "reflexión previa" || len(ci.Commitments) != 1 {
+		t.Errorf("UpsertMetrics pisó las reflexiones: %+v", ci)
+	}
+}
+
+func TestUpsertMetricsCreaMinimo(t *testing.T) {
+	pool := testutil.NewDB(t)
+	q := store.New(pool)
+	svc := checkin.NewService(q)
+	ctx := context.Background()
+
+	user, err := q.CreateUser(ctx, store.CreateUserParams{Email: "minimo@b.com", PasswordHash: "h", Name: "Min"})
+	if err != nil {
+		t.Fatalf("CreateUser: %v", err)
+	}
+	userID := user.ID
+	date := time.Date(2026, 6, 13, 0, 0, 0, 0, time.UTC)
+
+	ci, err := svc.UpsertMetrics(ctx, userID, date, 6, 6)
+	if err != nil {
+		t.Fatalf("UpsertMetrics: %v", err)
+	}
+	if ci.Mood != 6 || ci.Espiritual != "" || len(ci.Commitments) != 0 {
+		t.Errorf("registro mínimo mal: %+v", ci)
 	}
 }

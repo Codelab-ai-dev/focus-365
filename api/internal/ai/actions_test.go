@@ -642,3 +642,45 @@ func TestUndoErrorDeDBSePropaga(t *testing.T) {
 		t.Errorf("err = %v, want db caída", err)
 	}
 }
+
+func TestParseMovimientoOccurredOn(t *testing.T) {
+	// Válido con fecha.
+	if _, err := parseActionPayload("movimiento", `{"type":"expense","amount_centavos":25000,"category":"comida","occurred_on":"2026-05-10"}`); err != nil {
+		t.Errorf("con occurred_on válido: %v", err)
+	}
+	// Sin fecha (retrocompatible).
+	if _, err := parseActionPayload("movimiento", `{"type":"income","amount_centavos":1,"category":"x"}`); err != nil {
+		t.Errorf("sin occurred_on: %v", err)
+	}
+	// Fecha malformada.
+	if _, err := parseActionPayload("movimiento", `{"type":"expense","amount_centavos":1,"category":"x","occurred_on":"mayo"}`); err == nil {
+		t.Error("occurred_on malformado debe fallar")
+	}
+}
+
+func TestExecutorMovimientoUsaFechaDelPayload(t *testing.T) {
+	fin := &fakeFinanceSvc{}
+	ex := newTestExecutor(&fakeCheckinSvc{}, fin, &fakeHabitsSvc{}, &fakeGoalsSvc{}, &fakeTrainingSvc{})
+	today := time.Date(2026, 6, 13, 0, 0, 0, 0, time.UTC)
+	if _, err := ex.execute(context.Background(), uuid.New(), "movimiento",
+		[]byte(`{"type":"expense","amount_centavos":25000,"category":"comida","occurred_on":"2026-05-10"}`), today); err != nil {
+		t.Fatalf("execute: %v", err)
+	}
+	want := time.Date(2026, 5, 10, 0, 0, 0, 0, time.UTC)
+	if !fin.in.OccurredOn.Equal(want) {
+		t.Errorf("OccurredOn = %v, want %v (la fecha del payload)", fin.in.OccurredOn, want)
+	}
+}
+
+func TestExecutorMovimientoSinFechaUsaToday(t *testing.T) {
+	fin := &fakeFinanceSvc{}
+	ex := newTestExecutor(&fakeCheckinSvc{}, fin, &fakeHabitsSvc{}, &fakeGoalsSvc{}, &fakeTrainingSvc{})
+	today := time.Date(2026, 6, 13, 0, 0, 0, 0, time.UTC)
+	if _, err := ex.execute(context.Background(), uuid.New(), "movimiento",
+		[]byte(`{"type":"expense","amount_centavos":25000,"category":"comida"}`), today); err != nil {
+		t.Fatalf("execute: %v", err)
+	}
+	if !fin.in.OccurredOn.Equal(today) {
+		t.Errorf("OccurredOn = %v, want today %v", fin.in.OccurredOn, today)
+	}
+}

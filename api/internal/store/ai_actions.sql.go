@@ -9,21 +9,22 @@ import (
 	"context"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5/pgtype"
 )
 
 const createAction = `-- name: CreateAction :one
 INSERT INTO ai_actions (message_id, user_id, position, kind, payload, status)
 VALUES ($1, $2, $3, $4, $5, $6)
-RETURNING id, message_id, user_id, position, kind, payload, status, result, created_at
+RETURNING id, message_id, user_id, position, kind, payload, status, result, created_at, source
 `
 
 type CreateActionParams struct {
-	MessageID uuid.UUID `json:"message_id"`
-	UserID    uuid.UUID `json:"user_id"`
-	Position  int32     `json:"position"`
-	Kind      string    `json:"kind"`
-	Payload   []byte    `json:"payload"`
-	Status    string    `json:"status"`
+	MessageID pgtype.UUID `json:"message_id"`
+	UserID    uuid.UUID   `json:"user_id"`
+	Position  int32       `json:"position"`
+	Kind      string      `json:"kind"`
+	Payload   []byte      `json:"payload"`
+	Status    string      `json:"status"`
 }
 
 func (q *Queries) CreateAction(ctx context.Context, arg CreateActionParams) (AiAction, error) {
@@ -46,12 +47,49 @@ func (q *Queries) CreateAction(ctx context.Context, arg CreateActionParams) (AiA
 		&i.Status,
 		&i.Result,
 		&i.CreatedAt,
+		&i.Source,
+	)
+	return i, err
+}
+
+const createUploadAction = `-- name: CreateUploadAction :one
+INSERT INTO ai_actions (user_id, position, kind, payload, status, source)
+VALUES ($1, $2, $3, $4, 'proposed', 'upload')
+RETURNING id, message_id, user_id, position, kind, payload, status, result, created_at, source
+`
+
+type CreateUploadActionParams struct {
+	UserID   uuid.UUID `json:"user_id"`
+	Position int32     `json:"position"`
+	Kind     string    `json:"kind"`
+	Payload  []byte    `json:"payload"`
+}
+
+func (q *Queries) CreateUploadAction(ctx context.Context, arg CreateUploadActionParams) (AiAction, error) {
+	row := q.db.QueryRow(ctx, createUploadAction,
+		arg.UserID,
+		arg.Position,
+		arg.Kind,
+		arg.Payload,
+	)
+	var i AiAction
+	err := row.Scan(
+		&i.ID,
+		&i.MessageID,
+		&i.UserID,
+		&i.Position,
+		&i.Kind,
+		&i.Payload,
+		&i.Status,
+		&i.Result,
+		&i.CreatedAt,
+		&i.Source,
 	)
 	return i, err
 }
 
 const getAction = `-- name: GetAction :one
-SELECT id, message_id, user_id, position, kind, payload, status, result, created_at FROM ai_actions
+SELECT id, message_id, user_id, position, kind, payload, status, result, created_at, source FROM ai_actions
 WHERE id = $1 AND user_id = $2
 `
 
@@ -73,12 +111,13 @@ func (q *Queries) GetAction(ctx context.Context, arg GetActionParams) (AiAction,
 		&i.Status,
 		&i.Result,
 		&i.CreatedAt,
+		&i.Source,
 	)
 	return i, err
 }
 
 const listActionsByMessages = `-- name: ListActionsByMessages :many
-SELECT id, message_id, user_id, position, kind, payload, status, result, created_at FROM ai_actions
+SELECT id, message_id, user_id, position, kind, payload, status, result, created_at, source FROM ai_actions
 WHERE message_id = ANY($1::uuid[])
 ORDER BY message_id, position
 `
@@ -102,6 +141,44 @@ func (q *Queries) ListActionsByMessages(ctx context.Context, dollar_1 []uuid.UUI
 			&i.Status,
 			&i.Result,
 			&i.CreatedAt,
+			&i.Source,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listPendingUploadActions = `-- name: ListPendingUploadActions :many
+SELECT id, message_id, user_id, position, kind, payload, status, result, created_at, source FROM ai_actions
+WHERE user_id = $1 AND source = 'upload' AND status = 'proposed'
+ORDER BY created_at, position
+`
+
+func (q *Queries) ListPendingUploadActions(ctx context.Context, userID uuid.UUID) ([]AiAction, error) {
+	rows, err := q.db.Query(ctx, listPendingUploadActions, userID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []AiAction
+	for rows.Next() {
+		var i AiAction
+		if err := rows.Scan(
+			&i.ID,
+			&i.MessageID,
+			&i.UserID,
+			&i.Position,
+			&i.Kind,
+			&i.Payload,
+			&i.Status,
+			&i.Result,
+			&i.CreatedAt,
+			&i.Source,
 		); err != nil {
 			return nil, err
 		}
@@ -117,7 +194,7 @@ const setActionStatusFrom = `-- name: SetActionStatusFrom :one
 UPDATE ai_actions
 SET status = $3, result = COALESCE($4, result)
 WHERE id = $1 AND user_id = $2 AND status = $5
-RETURNING id, message_id, user_id, position, kind, payload, status, result, created_at
+RETURNING id, message_id, user_id, position, kind, payload, status, result, created_at, source
 `
 
 type SetActionStatusFromParams struct {
@@ -147,6 +224,7 @@ func (q *Queries) SetActionStatusFrom(ctx context.Context, arg SetActionStatusFr
 		&i.Status,
 		&i.Result,
 		&i.CreatedAt,
+		&i.Source,
 	)
 	return i, err
 }

@@ -85,7 +85,7 @@ func (s *ChatService) History(ctx context.Context, userID uuid.UUID) ([]Message,
 	}
 	byMsg := make(map[string][]ActionView)
 	for _, a := range acts {
-		k := a.MessageID.String()
+		k := uuid.UUID(a.MessageID.Bytes).String()
 		byMsg[k] = append(byMsg[k], toActionView(a))
 	}
 	for i := range msgs {

@@ -137,4 +137,107 @@ describe("FinanzasPage", () => {
       expect(deleted).toBe(true);
     });
   });
+
+  it("subir un archivo muestra las tarjetas extraídas", async () => {
+    const movimiento = {
+      id: "a1",
+      kind: "movimiento",
+      payload: { type: "expense", amount_centavos: 12500, category: "comida" },
+      status: "proposed",
+    };
+    let pending: unknown[] = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((url: string, opts?: RequestInit) => {
+        if (url === "/api/v1/ai/import" && opts?.method === "POST") {
+          pending = [movimiento];
+          return Promise.resolve(
+            new Response(
+              JSON.stringify({ created: [movimiento], dropped: 0, truncated: false }),
+              { status: 200 }
+            )
+          );
+        }
+        if (url === "/api/v1/ai/import/pending") {
+          return Promise.resolve(
+            new Response(JSON.stringify({ actions: pending }), { status: 200 })
+          );
+        }
+        if (url.includes("/summary")) {
+          return Promise.resolve(
+            new Response(
+              JSON.stringify({
+                cycle: "2026-06", income: 0, expense: 0, net: 0, status: "pendiente",
+              }),
+              { status: 200 }
+            )
+          );
+        }
+        if (url.includes("/cycles")) {
+          return Promise.resolve(new Response(JSON.stringify([]), { status: 200 }));
+        }
+        return Promise.resolve(new Response(JSON.stringify([]), { status: 200 }));
+      })
+    );
+
+    renderPage();
+    const input = await screen.findByLabelText("Subir comprobante");
+    const file = new File(["x,y\n1,2\n"], "ticket.csv", { type: "text/csv" });
+    await userEvent.upload(input as HTMLInputElement, file);
+
+    expect(await screen.findByText("Movimiento")).toBeInTheDocument();
+    expect((await screen.findAllByText("Confirmar"))[0]).toBeInTheDocument();
+  });
+
+  it("Confirmar todos confirma cada pendiente", async () => {
+    const m1 = {
+      id: "a1", kind: "movimiento",
+      payload: { type: "expense", amount_centavos: 12500, category: "comida" },
+      status: "proposed",
+    };
+    const m2 = {
+      id: "a2", kind: "movimiento",
+      payload: { type: "income", amount_centavos: 50000, category: "sueldo" },
+      status: "proposed",
+    };
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((url: string, _opts?: RequestInit) => {
+        if (url === "/api/v1/ai/import/pending") {
+          return Promise.resolve(
+            new Response(JSON.stringify({ actions: [m1, m2] }), { status: 200 })
+          );
+        }
+        if (/\/ai\/actions\/.+\/confirm$/.test(url)) {
+          return Promise.resolve(
+            new Response(JSON.stringify({ action: { ...m1, status: "done" } }), { status: 200 })
+          );
+        }
+        if (url.includes("/summary")) {
+          return Promise.resolve(
+            new Response(
+              JSON.stringify({ cycle: "2026-06", income: 0, expense: 0, net: 0, status: "pendiente" }),
+              { status: 200 }
+            )
+          );
+        }
+        if (url.includes("/cycles")) {
+          return Promise.resolve(new Response(JSON.stringify([]), { status: 200 }));
+        }
+        return Promise.resolve(new Response(JSON.stringify([]), { status: 200 }));
+      })
+    );
+
+    renderPage();
+    const btn = await screen.findByRole("button", { name: "Confirmar todos" });
+    await userEvent.click(btn);
+
+    await waitFor(() => {
+      const calls = (globalThis.fetch as ReturnType<typeof vi.fn>).mock.calls;
+      const confirmed = calls.filter(([url]) =>
+        /\/ai\/actions\/.+\/confirm$/.test(url as string)
+      );
+      expect(confirmed.length).toBe(2);
+    });
+  });
 });

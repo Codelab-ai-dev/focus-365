@@ -24,25 +24,27 @@ type Completer interface {
 
 // GroqClient habla con el endpoint OpenAI-compatible de Groq.
 type GroqClient struct {
-	baseURL    string
-	apiKey     string
-	model      string
-	http       *http.Client
-	streamHTTP *http.Client
+	baseURL     string
+	apiKey      string
+	model       string
+	visionModel string
+	http        *http.Client
+	streamHTTP  *http.Client
 }
 
 // NewGroqClient crea el cliente real contra la API pública de Groq.
-func NewGroqClient(apiKey, model string) *GroqClient {
-	return newGroqClient(defaultGroqBaseURL, apiKey, model)
+func NewGroqClient(apiKey, model, visionModel string) *GroqClient {
+	return newGroqClient(defaultGroqBaseURL, apiKey, model, visionModel)
 }
 
 // newGroqClient permite inyectar baseURL (httptest.Server) en los tests.
-func newGroqClient(baseURL, apiKey, model string) *GroqClient {
+func newGroqClient(baseURL, apiKey, model, visionModel string) *GroqClient {
 	return &GroqClient{
-		baseURL: baseURL,
-		apiKey:  apiKey,
-		model:   model,
-		http:    &http.Client{Timeout: 10 * time.Second},
+		baseURL:     baseURL,
+		apiKey:      apiKey,
+		model:       model,
+		visionModel: visionModel,
+		http:        &http.Client{Timeout: 10 * time.Second},
 		// El timeout del cliente cubre la lectura completa del body; un stream
 		// necesita más holgura que una respuesta bloqueante.
 		streamHTTP: &http.Client{Timeout: 60 * time.Second},
@@ -78,13 +80,18 @@ type openaiTool struct {
 	Function openaiToolFunction `json:"function"`
 }
 
+type responseFormat struct {
+	Type string `json:"type"`
+}
+
 type chatRequest struct {
-	Model       string        `json:"model"`
-	Messages    []chatMessage `json:"messages"`
-	Temperature float64       `json:"temperature"`
-	MaxTokens   int           `json:"max_tokens"`
-	Stream      bool          `json:"stream,omitempty"`
-	Tools       []openaiTool  `json:"tools,omitempty"`
+	Model          string          `json:"model"`
+	Messages       []chatMessage   `json:"messages"`
+	Temperature    float64         `json:"temperature"`
+	MaxTokens      int             `json:"max_tokens"`
+	Stream         bool            `json:"stream,omitempty"`
+	Tools          []openaiTool    `json:"tools,omitempty"`
+	ResponseFormat *responseFormat `json:"response_format,omitempty"`
 }
 
 type chatResponse struct {
@@ -295,4 +302,90 @@ func (c *GroqClient) ChatStream(ctx context.Context, system string, history []Ch
 		return "", nil, fmt.Errorf("groq stream sin contenido")
 	}
 	return full.String(), nil, nil
+}
+
+// --- Tipos para mensajes de visión (content array) ---
+
+type visionContentPart struct {
+	Type     string          `json:"type"`
+	Text     string          `json:"text,omitempty"`
+	ImageURL *visionImageURL `json:"image_url,omitempty"`
+}
+
+type visionImageURL struct {
+	URL string `json:"url"`
+}
+
+type visionMessage struct {
+	Role    string              `json:"role"`
+	Content []visionContentPart `json:"content"`
+}
+
+type visionRequest struct {
+	Model          string            `json:"model"`
+	Messages       []json.RawMessage `json:"messages"`
+	Temperature    float64           `json:"temperature"`
+	MaxTokens      int               `json:"max_tokens"`
+	ResponseFormat *responseFormat   `json:"response_format,omitempty"`
+}
+
+// ExtractText manda system+user al modelo de TEXTO con JSON mode (CSV / PDF-texto).
+func (c *GroqClient) ExtractText(ctx context.Context, system, user string) (string, error) {
+	return c.sendJSON(ctx, c.model, []json.RawMessage{
+		rawMsg("system", system), rawMsg("user", user),
+	})
+}
+
+// ExtractVision manda system + imagen base64 al modelo de VISIÓN con JSON mode.
+func (c *GroqClient) ExtractVision(ctx context.Context, system, b64, mime string) (string, error) {
+	userMsg := visionMessage{Role: "user", Content: []visionContentPart{
+		{Type: "text", Text: "Extrae los movimientos del comprobante."},
+		{Type: "image_url", ImageURL: &visionImageURL{URL: "data:" + mime + ";base64," + b64}},
+	}}
+	raw, _ := json.Marshal(userMsg)
+	return c.sendJSON(ctx, c.visionModel, []json.RawMessage{rawMsg("system", system), raw})
+}
+
+func rawMsg(role, content string) json.RawMessage {
+	b, _ := json.Marshal(chatMessage{Role: role, Content: content})
+	return b
+}
+
+// sendJSON hace el POST con response_format json_object y max_tokens amplio
+// (las extracciones pueden devolver muchos movimientos). Reusa el cliente de
+// 60s porque la visión puede tardar.
+func (c *GroqClient) sendJSON(ctx context.Context, model string, msgs []json.RawMessage) (string, error) {
+	reqBody, err := json.Marshal(visionRequest{
+		Model: model, Messages: msgs, Temperature: 0.2, MaxTokens: 2000,
+		ResponseFormat: &responseFormat{Type: "json_object"},
+	})
+	if err != nil {
+		return "", err
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.baseURL+"/chat/completions", bytes.NewReader(reqBody))
+	if err != nil {
+		return "", err
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "Bearer "+c.apiKey)
+	res, err := c.streamHTTP.Do(req)
+	if err != nil {
+		return "", err
+	}
+	defer res.Body.Close()
+	body, err := io.ReadAll(res.Body)
+	if err != nil {
+		return "", err
+	}
+	if res.StatusCode < 200 || res.StatusCode >= 300 {
+		return "", fmt.Errorf("groq status %d: %s", res.StatusCode, string(body))
+	}
+	var parsed chatResponse
+	if err := json.Unmarshal(body, &parsed); err != nil {
+		return "", err
+	}
+	if len(parsed.Choices) == 0 {
+		return "", fmt.Errorf("groq sin choices")
+	}
+	return parsed.Choices[0].Message.Content, nil
 }

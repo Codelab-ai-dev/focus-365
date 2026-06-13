@@ -51,6 +51,7 @@ type movimientoPayload struct {
 	AmountCentavos int64  `json:"amount_centavos"`
 	Category       string `json:"category"`
 	Remark         string `json:"remark,omitempty"`
+	OccurredOn     string `json:"occurred_on,omitempty"` // YYYY-MM-DD; "" = hoy
 }
 
 type habitoPayload struct {
@@ -140,6 +141,11 @@ func parseActionPayload(kind, args string) (json.RawMessage, error) {
 		}
 		if strings.TrimSpace(p.Category) == "" {
 			return nil, fmt.Errorf("falta category")
+		}
+		if p.OccurredOn != "" {
+			if _, err := time.Parse("2006-01-02", p.OccurredOn); err != nil {
+				return nil, fmt.Errorf("occurred_on inválido (YYYY-MM-DD)")
+			}
 		}
 		return json.Marshal(p)
 	case actionHabito:
@@ -417,8 +423,12 @@ func (e *actionExecutor) execute(ctx context.Context, userID uuid.UUID, kind str
 	case actionMovimiento:
 		var p movimientoPayload
 		_ = json.Unmarshal(normalized, &p)
+		occurred := today
+		if p.OccurredOn != "" {
+			occurred, _ = time.Parse("2006-01-02", p.OccurredOn) // ya validado
+		}
 		tx, err := e.finance.Create(ctx, userID, finance.Input{
-			Type: p.Type, Amount: p.AmountCentavos, OccurredOn: today, Category: p.Category, Remark: p.Remark,
+			Type: p.Type, Amount: p.AmountCentavos, OccurredOn: occurred, Category: p.Category, Remark: p.Remark,
 		})
 		if err != nil {
 			return nil, err

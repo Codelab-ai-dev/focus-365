@@ -25,7 +25,7 @@ const maxChatChars = 2000
 
 // Routes monta los endpoints del asistente (bajo RequireAuth en server.go):
 // el insight proactivo y el chat on-demand.
-func Routes(svc *Service, chat *ChatService) http.Handler {
+func Routes(svc *Service, chat *ChatService, imp *ImportService) http.Handler {
 	r := chi.NewRouter()
 	r.Get("/insight", handleInsight(svc))
 	r.Get("/messages", handleMessages(chat))
@@ -34,7 +34,84 @@ func Routes(svc *Service, chat *ChatService) http.Handler {
 	r.Post("/actions/{id}/confirm", handleActionConfirm(chat))
 	r.Post("/actions/{id}/cancel", handleActionCancel(chat))
 	r.Post("/actions/{id}/undo", handleActionUndo(chat))
+	r.Post("/import", handleImport(imp))
+	r.Get("/import/pending", handleImportPending(imp))
 	return r
+}
+
+const maxUploadBytes = 8 << 20 // 8 MB
+
+func handleImport(imp *ImportService) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		userID, ok := auth.UserIDFromContext(r.Context())
+		if !ok {
+			httpx.WriteErr(w, http.StatusUnauthorized, "no autorizado")
+			return
+		}
+		r.Body = http.MaxBytesReader(w, r.Body, maxUploadBytes+1024)
+		if err := r.ParseMultipartForm(maxUploadBytes); err != nil {
+			httpx.WriteErr(w, http.StatusRequestEntityTooLarge, "archivo demasiado grande (máx 8 MB)")
+			return
+		}
+		// Si multipart derramó a un temp file en disco, limpiarlo al terminar.
+		defer func() {
+			if r.MultipartForm != nil {
+				_ = r.MultipartForm.RemoveAll()
+			}
+		}()
+		file, hdr, err := r.FormFile("file")
+		if err != nil {
+			httpx.WriteErr(w, http.StatusBadRequest, "falta el archivo")
+			return
+		}
+		defer file.Close()
+		data, err := io.ReadAll(io.LimitReader(file, maxUploadBytes+1))
+		if err != nil {
+			httpx.WriteErr(w, http.StatusInternalServerError, "error leyendo el archivo")
+			return
+		}
+		if len(data) > maxUploadBytes {
+			httpx.WriteErr(w, http.StatusRequestEntityTooLarge, "archivo demasiado grande (máx 8 MB)")
+			return
+		}
+		mimeType := hdr.Header.Get("Content-Type")
+		res, err := imp.Import(r.Context(), userID, data, mimeType, hdr.Filename)
+		if err != nil {
+			switch {
+			case errors.Is(err, ErrUnavailable):
+				httpx.WriteErr(w, http.StatusServiceUnavailable, "asistente no disponible por ahora")
+			default:
+				// errores de extracción (formato, escaneado, cero movimientos)
+				httpx.WriteErr(w, http.StatusUnprocessableEntity, err.Error())
+			}
+			return
+		}
+		httpx.WriteJSON(w, http.StatusOK, importResponse{
+			Created: res.Created, Dropped: res.Dropped, Truncated: res.Truncated,
+		})
+	}
+}
+
+type importResponse struct {
+	Created   []ActionView `json:"created"`
+	Dropped   int          `json:"dropped"`
+	Truncated bool         `json:"truncated"`
+}
+
+func handleImportPending(imp *ImportService) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		userID, ok := auth.UserIDFromContext(r.Context())
+		if !ok {
+			httpx.WriteErr(w, http.StatusUnauthorized, "no autorizado")
+			return
+		}
+		acts, err := imp.Pending(r.Context(), userID)
+		if err != nil {
+			httpx.WriteErr(w, http.StatusInternalServerError, "error interno")
+			return
+		}
+		httpx.WriteJSON(w, http.StatusOK, map[string]any{"actions": acts})
+	}
 }
 
 // insightResponse usa punteros para serializar content/generated_at como null

@@ -56,7 +56,7 @@ func handleUpsert(svc *Service) http.HandlerFunc {
 			Date: date, Mood: req.Mood, Energy: req.Energy,
 			Espiritual: req.Espiritual, Emocional: req.Emocional,
 			Fisica: req.Fisica, Financiera: req.Financiera,
-			Win: req.Win, Avoided: req.Avoided, Commitments: req.Commitments,
+			Win: req.Win, Avoided: req.Avoided,
 		})
 		if err != nil {
 			httpx.WriteErr(w, http.StatusInternalServerError, "error interno")

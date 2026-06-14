@@ -84,9 +84,10 @@ type entrenamientoPayload struct {
 	Sets []setPayload `json:"sets"`
 }
 
-// goalDimensions replica el oneof del handler HTTP de metas.
+// goalDimensions replica el oneof del handler HTTP de metas (las 4 dimensiones
+// de Capitanes).
 var goalDimensions = map[string]bool{
-	"checkin": true, "finanzas": true, "entrenamiento": true, "mente": true, "general": true,
+	"espiritual": true, "emocional": true, "fisica": true, "financiera": true,
 }
 
 const maxWorkoutSets = 20
@@ -634,10 +635,10 @@ func buildChatTools() []Tool {
 		},
 		{
 			Name:        "crear_meta",
-			Description: "Crea una meta nueva. dimension: checkin, finanzas, entrenamiento, mente o general — infiérela del tema (ahorro→finanzas) y usa general si no es claro. deadline opcional en YYYY-MM-DD.",
+			Description: "Crea una meta nueva. dimension es una de las 4 dimensiones: espiritual (identidad, propósito, conexión, visión), emocional (sanidad, autocontrol, mente), fisica (cuerpo, ejercicio, energía, disciplina) o financiera (dinero, ahorro, multiplicación). Infiérela del tema; elige siempre la más cercana. deadline opcional en YYYY-MM-DD.",
 			Parameters: json.RawMessage(`{"type":"object","properties":{
 				"title":{"type":"string"},
-				"dimension":{"type":"string","enum":["checkin","finanzas","entrenamiento","mente","general"]},
+				"dimension":{"type":"string","enum":["espiritual","emocional","fisica","financiera"]},
 				"deadline":{"type":"string","description":"YYYY-MM-DD, opcional"}},
 				"required":["title","dimension"]}`),
 		},

@@ -149,7 +149,7 @@ func TestPopulatedDashboard(t *testing.T) {
 		t.Fatalf("workout: %v", err)
 	}
 	if _, err := e.goals.Create(ctx, uid, goals.GoalInput{
-		Title: "Correr 10k", Dimension: "entrenamiento",
+		Title: "Correr 10k", Dimension: "fisica",
 	}, td); err != nil {
 		t.Fatalf("meta: %v", err)
 	}
@@ -188,7 +188,7 @@ func TestOverdueGoalsCounted(t *testing.T) {
 	td := dayTime(t, today)
 	dl := dayTime(t, "2026-06-01")
 	if _, err := e.goals.Create(ctx, uid, goals.GoalInput{
-		Title: "Entrega", Dimension: "general", Deadline: &dl,
+		Title: "Entrega", Dimension: "espiritual", Deadline: &dl,
 	}, td); err != nil {
 		t.Fatalf("meta: %v", err)
 	}
@@ -214,7 +214,7 @@ func TestUserIsolation(t *testing.T) {
 	ctx := context.Background()
 	td := dayTime(t, today)
 	if _, err := e.goals.Create(ctx, uidA, goals.GoalInput{
-		Title: "Privada", Dimension: "general",
+		Title: "Privada", Dimension: "espiritual",
 	}, td); err != nil {
 		t.Fatalf("meta A: %v", err)
 	}

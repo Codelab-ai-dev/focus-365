@@ -13,13 +13,13 @@ import (
 
 type createReq struct {
 	Title     string  `json:"title" validate:"required"`
-	Dimension string  `json:"dimension" validate:"required,oneof=checkin finanzas entrenamiento mente general"`
+	Dimension string  `json:"dimension" validate:"required,oneof=espiritual emocional fisica financiera"`
 	Deadline  *string `json:"deadline"`
 }
 
 type patchReq struct {
 	Title     *string         `json:"title"`
-	Dimension *string         `json:"dimension" validate:"omitempty,oneof=checkin finanzas entrenamiento mente general"`
+	Dimension *string         `json:"dimension" validate:"omitempty,oneof=espiritual emocional fisica financiera"`
 	Status    *string         `json:"status" validate:"omitempty,oneof=active done paused"`
 	Progress  *int32          `json:"progress" validate:"omitempty,min=0,max=100"`
 	Deadline  json.RawMessage `json:"deadline"`

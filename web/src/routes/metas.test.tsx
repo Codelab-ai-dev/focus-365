@@ -37,7 +37,7 @@ function makeGoal(overrides: GoalOverride = {}) {
   return {
     id: "1",
     title: "Correr 10k",
-    dimension: "entrenamiento",
+    dimension: "fisica",
     status: "active",
     progress: 30,
     deadline: null,
@@ -129,5 +129,56 @@ describe("MetasPage", () => {
     );
     renderPage();
     expect(await screen.findByText(/Vencida/)).toBeInTheDocument();
+  });
+
+  it("el selector de dimensión ofrece las 4D y NO las viejas", async () => {
+    renderPage();
+    // Esperar a que la página cargue
+    expect(await screen.findByText("Correr 10k")).toBeInTheDocument();
+    // Las 4 opciones nuevas deben estar presentes
+    expect(screen.getByRole("option", { name: "Espiritual" })).toBeInTheDocument();
+    expect(screen.getByRole("option", { name: "Emocional" })).toBeInTheDocument();
+    expect(screen.getByRole("option", { name: "Física" })).toBeInTheDocument();
+    expect(screen.getByRole("option", { name: "Financiera" })).toBeInTheDocument();
+    // Las dimensiones viejas NO deben aparecer como opciones
+    expect(screen.queryByRole("option", { name: "general" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("option", { name: "checkin" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("option", { name: "entrenamiento" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("option", { name: "finanzas" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("option", { name: "mente" })).not.toBeInTheDocument();
+  });
+
+  it("al crear una meta envía el valor en minúscula (sin acento)", async () => {
+    let capturedBody: Record<string, unknown> | null = null;
+    vi.stubGlobal("fetch", vi.fn((_url: string, opts?: RequestInit) => {
+      if (opts?.method === "POST") {
+        capturedBody = JSON.parse(opts.body as string);
+        return Promise.resolve(new Response(JSON.stringify({ id: "g9" }), { status: 201 }));
+      }
+      return Promise.resolve(new Response(JSON.stringify([]), { status: 200 }));
+    }));
+    renderPage();
+    const select = await screen.findByLabelText("Dimensión");
+    await userEvent.selectOptions(select, "fisica");
+    await userEvent.type(screen.getByLabelText("Título de la meta"), "Correr 5k");
+    await userEvent.click(screen.getByRole("button", { name: /crear meta/i }));
+    await waitFor(() => expect(capturedBody).not.toBeNull());
+    expect(capturedBody!.dimension).toBe("fisica");
+  });
+
+  it("el chip de una meta con dimension 'financiera' muestra la etiqueta 'Financiera'", async () => {
+    vi.stubGlobal(
+      "fetch",
+      fetchMock([makeGoal({ dimension: "financiera", title: "Ahorrar" })])
+    );
+    renderPage();
+    expect(await screen.findByText("Ahorrar")).toBeInTheDocument();
+    // El chip debe mostrar la etiqueta capitalizada, no el valor en crudo.
+    // Usamos getAllByText porque también existe como opción en el <select>.
+    const matches = screen.getAllByText("Financiera");
+    expect(matches.length).toBeGreaterThanOrEqual(1);
+    // Al menos uno de los elementos debe ser el chip (span con role implícito)
+    const chip = matches.find((el) => el.tagName === "SPAN");
+    expect(chip).toBeTruthy();
   });
 });

@@ -74,8 +74,8 @@ func TestParseActionPayloadNewKindsValid(t *testing.T) {
 	cases := []struct{ kind, args string }{
 		{"habito_nuevo", `{"name":"Leer 30 min","target_days":21}`},
 		{"habito_nuevo", `{"name":"Meditar"}`},
-		{"meta_nueva", `{"title":"Ahorrar 50k","dimension":"finanzas","deadline":"2026-12-01"}`},
-		{"meta_nueva", `{"title":"Leer 12 libros","dimension":"general"}`},
+		{"meta_nueva", `{"title":"Ahorrar 50k","dimension":"financiera","deadline":"2026-12-01"}`},
+		{"meta_nueva", `{"title":"Leer 12 libros","dimension":"espiritual"}`},
 		{"entrenamiento", `{"type":"fuerza","sets":[{"exercise":"press banca","reps":8,"weight_kg":60},{"exercise":"sentadilla","reps":5,"weight_kg":80.5}]}`},
 		{"entrenamiento", `{"type":"cardio","note":"suave","sets":[{"exercise":"correr"}]}`},
 	}
@@ -90,9 +90,9 @@ func TestParseActionPayloadNewKindsInvalid(t *testing.T) {
 	cases := []struct{ name, kind, args string }{
 		{"hábito sin nombre", "habito_nuevo", `{"name":"  "}`},
 		{"target_days cero", "habito_nuevo", `{"name":"Leer","target_days":0}`},
-		{"meta sin título", "meta_nueva", `{"title":"","dimension":"general"}`},
+		{"meta sin título", "meta_nueva", `{"title":"","dimension":"espiritual"}`},
 		{"dimension inválida", "meta_nueva", `{"title":"X","dimension":"dinero"}`},
-		{"deadline malformado", "meta_nueva", `{"title":"X","dimension":"general","deadline":"diciembre"}`},
+		{"deadline malformado", "meta_nueva", `{"title":"X","dimension":"espiritual","deadline":"diciembre"}`},
 		{"entreno sin tipo", "entrenamiento", `{"type":" ","sets":[{"exercise":"x"}]}`},
 		{"entreno sin series", "entrenamiento", `{"type":"fuerza","sets":[]}`},
 		{"serie sin ejercicio", "entrenamiento", `{"type":"fuerza","sets":[{"exercise":"  "}]}`},
@@ -125,7 +125,7 @@ func TestActionSummaryNewKinds(t *testing.T) {
 		wants         []string
 	}{
 		{"habito_nuevo", `{"name":"Leer 30 min","target_days":21}`, []string{"hábito", "Leer 30 min"}},
-		{"meta_nueva", `{"title":"Ahorrar 50k","dimension":"finanzas","deadline":"2026-12-01"}`, []string{"meta", "Ahorrar 50k", "2026-12-01"}},
+		{"meta_nueva", `{"title":"Ahorrar 50k","dimension":"financiera","deadline":"2026-12-01"}`, []string{"meta", "Ahorrar 50k", "2026-12-01"}},
 		{"entrenamiento", `{"type":"fuerza","sets":[{"exercise":"a"},{"exercise":"b"}]}`, []string{"entrenamiento", "fuerza", "2"}},
 	}
 	for _, c := range cases {
@@ -427,10 +427,10 @@ func TestExecutorMetaNuevaConDeadline(t *testing.T) {
 	gc := &fakeGoalsSvc{}
 	ex := newTestExecutor(&fakeCheckinSvc{}, &fakeFinanceSvc{}, &fakeHabitsSvc{}, gc, &fakeTrainingSvc{})
 	if _, err := ex.execute(context.Background(), uuid.New(), "meta_nueva",
-		[]byte(`{"title":"Ahorrar 50k","dimension":"finanzas","deadline":"2026-12-01"}`), time.Now()); err != nil {
+		[]byte(`{"title":"Ahorrar 50k","dimension":"financiera","deadline":"2026-12-01"}`), time.Now()); err != nil {
 		t.Fatalf("execute: %v", err)
 	}
-	if gc.createIn == nil || gc.createIn.Title != "Ahorrar 50k" || gc.createIn.Dimension != "finanzas" {
+	if gc.createIn == nil || gc.createIn.Title != "Ahorrar 50k" || gc.createIn.Dimension != "financiera" {
 		t.Fatalf("input = %+v", gc.createIn)
 	}
 	if gc.createIn.Deadline == nil || gc.createIn.Deadline.Format("2006-01-02") != "2026-12-01" {
@@ -708,5 +708,39 @@ func TestExecutorMovimientoSinFechaUsaToday(t *testing.T) {
 	}
 	if !fin.in.OccurredOn.Equal(today) {
 		t.Errorf("OccurredOn = %v, want today %v", fin.in.OccurredOn, today)
+	}
+}
+
+func TestParseMetaNuevaDimensiones4D(t *testing.T) {
+	for _, dim := range []string{"espiritual", "emocional", "fisica", "financiera"} {
+		args := `{"title":"X","dimension":"` + dim + `"}`
+		if _, err := parseActionPayload("meta_nueva", args); err != nil {
+			t.Errorf("dimensión %s debería ser válida: %v", dim, err)
+		}
+	}
+	// Las viejas ya no.
+	for _, dim := range []string{"general", "finanzas", "mente", "checkin", "entrenamiento"} {
+		args := `{"title":"X","dimension":"` + dim + `"}`
+		if _, err := parseActionPayload("meta_nueva", args); err == nil {
+			t.Errorf("dimensión vieja %s debería rechazarse", dim)
+		}
+	}
+}
+
+func TestCrearMetaToolEnum4D(t *testing.T) {
+	tools := buildChatTools()
+	var schema string
+	for _, tl := range tools {
+		if tl.Name == "crear_meta" {
+			schema = string(tl.Parameters)
+		}
+	}
+	for _, dim := range []string{"espiritual", "emocional", "fisica", "financiera"} {
+		if !strings.Contains(schema, dim) {
+			t.Errorf("el enum de crear_meta debe incluir %s: %s", dim, schema)
+		}
+	}
+	if strings.Contains(schema, "general") || strings.Contains(schema, "finanzas") {
+		t.Errorf("el enum no debe traer dimensiones viejas: %s", schema)
 	}
 }

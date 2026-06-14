@@ -20,7 +20,16 @@ import { Reveal, RevealItem } from "@/ui/Reveal";
 
 export const Route = createFileRoute("/metas")({ component: MetasPage });
 
-const DIMENSIONS = ["checkin", "finanzas", "entrenamiento", "mente", "general"];
+// Las 4 dimensiones de Capitanes: etiqueta visible → valor almacenado.
+const DIMENSIONS: { value: string; label: string }[] = [
+  { value: "espiritual", label: "Espiritual" },
+  { value: "emocional", label: "Emocional" },
+  { value: "fisica", label: "Física" },
+  { value: "financiera", label: "Financiera" },
+];
+const DIM_LABEL: Record<string, string> = Object.fromEntries(
+  DIMENSIONS.map((d) => [d.value, d.label])
+);
 const TABS: { value: GoalStatus; label: string }[] = [
   { value: "active", label: "Activas" },
   { value: "done", label: "Completadas" },
@@ -44,7 +53,7 @@ function MetasPage() {
   });
 
   const [title, setTitle] = useState("");
-  const [dimension, setDimension] = useState("general");
+  const [dimension, setDimension] = useState("espiritual");
   const [deadline, setDeadline] = useState("");
   const [error, setError] = useState<string | null>(null);
 
@@ -122,7 +131,7 @@ function MetasPage() {
                 className="w-full rounded-lg border-[2.5px] border-ink bg-surface px-3 py-2 text-sm text-ink outline-none transition-shadow focus:shadow-brutal-sm"
               >
                 {DIMENSIONS.map((d) => (
-                  <option key={d} value={d}>{d}</option>
+                  <option key={d.value} value={d.value}>{d.label}</option>
                 ))}
               </select>
             </label>
@@ -175,7 +184,7 @@ function MetasPage() {
                   <Card className="p-4 text-sm">
                     <div className="flex items-center justify-between">
                       <span className="font-bold">{g.title}</span>
-                      <Chip variant="plain" size="sm">{g.dimension}</Chip>
+                      <Chip variant="plain" size="sm">{DIM_LABEL[g.dimension] ?? g.dimension}</Chip>
                     </div>
                     <ProgressBar value={g.progress} className="mt-2" />
                     <div className="mt-1 flex items-center gap-2">

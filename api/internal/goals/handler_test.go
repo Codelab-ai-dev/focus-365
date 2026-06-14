@@ -78,7 +78,7 @@ func createGoal(t *testing.T, e *env, tok string, body map[string]any) map[strin
 func TestCreateAndList(t *testing.T) {
 	e := newEnv(t)
 	tok := e.token(t, "a@b.com")
-	createGoal(t, e, tok, map[string]any{"title": "Correr 10k", "dimension": "entrenamiento"})
+	createGoal(t, e, tok, map[string]any{"title": "Correr 10k", "dimension": "fisica"})
 
 	rec := do(t, e.h, http.MethodGet, "/goals?status=active&today=2026-06-11", tok, nil)
 	if rec.Code != http.StatusOK {
@@ -106,7 +106,7 @@ func TestCreateAndList(t *testing.T) {
 func TestPatchProgress(t *testing.T) {
 	e := newEnv(t)
 	tok := e.token(t, "p@b.com")
-	g := createGoal(t, e, tok, map[string]any{"title": "Leer", "dimension": "mente"})
+	g := createGoal(t, e, tok, map[string]any{"title": "Leer", "dimension": "emocional"})
 	id := g["id"].(string)
 
 	rec := do(t, e.h, http.MethodPatch, "/goals/"+id+"?today=2026-06-11", tok, map[string]any{"progress": 40})
@@ -126,7 +126,7 @@ func TestPatchProgress(t *testing.T) {
 func TestProgress100DoesNotChangeStatus(t *testing.T) {
 	e := newEnv(t)
 	tok := e.token(t, "p100@b.com")
-	g := createGoal(t, e, tok, map[string]any{"title": "Meta", "dimension": "general"})
+	g := createGoal(t, e, tok, map[string]any{"title": "Meta", "dimension": "espiritual"})
 	id := g["id"].(string)
 
 	rec := do(t, e.h, http.MethodPatch, "/goals/"+id+"?today=2026-06-11", tok, map[string]any{"progress": 100})
@@ -140,7 +140,7 @@ func TestProgress100DoesNotChangeStatus(t *testing.T) {
 func TestPatchStatusTransitions(t *testing.T) {
 	e := newEnv(t)
 	tok := e.token(t, "st@b.com")
-	g := createGoal(t, e, tok, map[string]any{"title": "Proyecto", "dimension": "general"})
+	g := createGoal(t, e, tok, map[string]any{"title": "Proyecto", "dimension": "espiritual"})
 	id := g["id"].(string)
 
 	do(t, e.h, http.MethodPatch, "/goals/"+id+"?today=2026-06-11", tok, map[string]any{"status": "done"})
@@ -168,7 +168,7 @@ func TestOverdue(t *testing.T) {
 	e := newEnv(t)
 	tok := e.token(t, "ov@b.com")
 	g := createGoal(t, e, tok, map[string]any{
-		"title": "Entrega", "dimension": "general", "deadline": "2026-06-01",
+		"title": "Entrega", "dimension": "espiritual", "deadline": "2026-06-01",
 	})
 	id := g["id"].(string)
 
@@ -191,7 +191,7 @@ func TestDeadlineClear(t *testing.T) {
 	e := newEnv(t)
 	tok := e.token(t, "dl@b.com")
 	g := createGoal(t, e, tok, map[string]any{
-		"title": "Con fecha", "dimension": "general", "deadline": "2026-12-01",
+		"title": "Con fecha", "dimension": "espiritual", "deadline": "2026-12-01",
 	})
 	id := g["id"].(string)
 
@@ -215,14 +215,14 @@ func TestValidation(t *testing.T) {
 
 	cases := []map[string]any{
 		{"title": "X", "dimension": "inexistente"},
-		{"dimension": "general"},
+		{"dimension": "espiritual"},
 	}
 	for _, body := range cases {
 		if rec := do(t, e.h, http.MethodPost, "/goals?today=2026-06-11", tok, body); rec.Code != http.StatusBadRequest {
 			t.Errorf("POST %v code = %d, want 400", body, rec.Code)
 		}
 	}
-	g := createGoal(t, e, tok, map[string]any{"title": "ok", "dimension": "general"})
+	g := createGoal(t, e, tok, map[string]any{"title": "ok", "dimension": "espiritual"})
 	id := g["id"].(string)
 	if rec := do(t, e.h, http.MethodPatch, "/goals/"+id, tok, map[string]any{"progress": 150}); rec.Code != http.StatusBadRequest {
 		t.Errorf("progress 150 code = %d, want 400", rec.Code)
@@ -235,7 +235,7 @@ func TestValidation(t *testing.T) {
 func TestDelete(t *testing.T) {
 	e := newEnv(t)
 	tok := e.token(t, "d@b.com")
-	g := createGoal(t, e, tok, map[string]any{"title": "Borrar", "dimension": "general"})
+	g := createGoal(t, e, tok, map[string]any{"title": "Borrar", "dimension": "espiritual"})
 	id := g["id"].(string)
 
 	if rec := do(t, e.h, http.MethodDelete, "/goals/"+id, tok, nil); rec.Code != http.StatusNoContent {
@@ -254,11 +254,26 @@ func TestRequiresAuth(t *testing.T) {
 	}
 }
 
+func TestCreateGoalRejectsOldDimension(t *testing.T) {
+	// POST /goals con una dimensión vieja → 400 (ya no es válida).
+	e := newEnv(t)
+	tok := e.token(t, "old_dim@b.com")
+	for _, dim := range []string{"general", "finanzas", "entrenamiento", "mente", "checkin"} {
+		rec := do(t, e.h, http.MethodPost, "/goals?today=2026-06-11", tok, map[string]any{
+			"title":     "Meta vieja",
+			"dimension": dim,
+		})
+		if rec.Code != http.StatusBadRequest {
+			t.Errorf("dimensión %q: code = %d, want 400", dim, rec.Code)
+		}
+	}
+}
+
 func TestUserIsolation(t *testing.T) {
 	e := newEnv(t)
 	tokA := e.token(t, "uA@b.com")
 	tokB := e.token(t, "uB@b.com")
-	g := createGoal(t, e, tokA, map[string]any{"title": "Privada", "dimension": "general"})
+	g := createGoal(t, e, tokA, map[string]any{"title": "Privada", "dimension": "espiritual"})
 	idA := g["id"].(string)
 
 	if n := listLen(t, e, tokB, "active"); n != 0 {

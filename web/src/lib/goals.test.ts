@@ -34,7 +34,7 @@ describe("goals lib", () => {
       okJson({ id: "1" }),
     );
     vi.stubGlobal("fetch", fetchMock);
-    await createGoal({ title: "X", dimension: "general", deadline: null });
+    await createGoal({ title: "X", dimension: "espiritual", deadline: null });
     const opts = fetchMock.mock.calls[0][1] as RequestInit;
     expect(opts.method).toBe("POST");
     expect(String(opts.body)).toContain('"title":"X"');

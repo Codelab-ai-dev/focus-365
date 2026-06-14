@@ -64,7 +64,7 @@ func TestChatContextComposesJSON(t *testing.T) {
 		{Cycle: "2026-05", Income: 10000, Expense: 8000, Net: 2000, Status: "verde"},
 	}
 	cks := []checkin.CheckIn{
-		{ID: "c1", Date: "2026-06-10", Mood: 7, Energy: 6, Discipline: 8},
+		{ID: "c1", Date: "2026-06-10", Mood: 7, Energy: 6},
 	}
 	lister := &fakeLister{list: cks}
 	hab := fakeHabits{list: []habits.Habit{{ID: "h1", Name: "Meditar", DoneToday: false}}}

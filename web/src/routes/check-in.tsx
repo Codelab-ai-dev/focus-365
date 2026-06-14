@@ -20,7 +20,7 @@ const DIMENSIONS: {
 }[] = [
   { key: "espiritual", label: "Espiritual", short: "E", variant: "accent" },
   { key: "emocional", label: "Emocional", short: "Em", variant: "danger" },
-  { key: "fisica", label: "Fisica", short: "F", variant: "money" },
+  { key: "fisica", label: "Física", short: "F", variant: "money" },
   { key: "financiera", label: "Financiera", short: "Fi", variant: "sun" },
 ];
 
@@ -174,7 +174,7 @@ function CheckInPage() {
               </span>
               <Input
                 aria-label="Qué evité"
-                placeholder="¿qué hiciste hoy?"
+                placeholder="¿qué decidiste NO hacer?"
                 value={avoided}
                 onChange={(e) => setAvoided(e.target.value)}
               />

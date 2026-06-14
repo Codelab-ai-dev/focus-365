@@ -85,7 +85,7 @@ describe("CheckInPage", () => {
     expect(screen.getByLabelText("Energía")).toBeInTheDocument();
     expect(screen.getByLabelText("Espiritual")).toBeInTheDocument();
     expect(screen.getByLabelText("Emocional")).toBeInTheDocument();
-    expect(screen.getByLabelText("Fisica")).toBeInTheDocument();
+    expect(screen.getByLabelText("Física")).toBeInTheDocument();
     expect(screen.getByLabelText("Financiera")).toBeInTheDocument();
     expect(screen.getByLabelText("Win del día")).toBeInTheDocument();
     expect(screen.getByLabelText("Qué evité")).toBeInTheDocument();
@@ -177,7 +177,7 @@ describe("CheckInPage", () => {
     expect((screen.getByLabelText("Energía") as HTMLInputElement).value).toBe("7");
     expect((screen.getByLabelText("Espiritual") as HTMLInputElement).value).toBe("oré");
     expect((screen.getByLabelText("Emocional") as HTMLInputElement).value).toBe("calma");
-    expect((screen.getByLabelText("Fisica") as HTMLInputElement).value).toBe("gym");
+    expect((screen.getByLabelText("Física") as HTMLInputElement).value).toBe("gym");
     expect((screen.getByLabelText("Financiera") as HTMLInputElement).value).toBe("ahorré");
     expect((screen.getByLabelText("Win del día") as HTMLInputElement).value).toBe("gran día");
     expect((screen.getByLabelText("Qué evité") as HTMLInputElement).value).toBe("redes");

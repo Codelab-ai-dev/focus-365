@@ -37,13 +37,21 @@ describe("lib checkins", () => {
     );
     vi.stubGlobal("fetch", fetchMock);
 
-    await upsert({ date: "2026-06-10", mood: 7, energy: 6, discipline: 8, note: "ok" });
+    await upsert({
+      date: "2026-06-10", mood: 7, energy: 6,
+      espiritual: "oración", emocional: "calma", fisica: "gym",
+      financiera: "ahorro", win: "cerré el deal", avoided: "redes",
+      commitments: ["llamar a mamá", "leer 20 min"],
+    });
 
     const [url, opts] = fetchMock.mock.calls[0];
     expect(url).toBe("/api/v1/checkins");
     expect(opts.method).toBe("POST");
     expect(JSON.parse(opts.body as string)).toEqual({
-      date: "2026-06-10", mood: 7, energy: 6, discipline: 8, note: "ok",
+      date: "2026-06-10", mood: 7, energy: 6,
+      espiritual: "oración", emocional: "calma", fisica: "gym",
+      financiera: "ahorro", win: "cerré el deal", avoided: "redes",
+      commitments: ["llamar a mamá", "leer 20 min"],
     });
   });
 

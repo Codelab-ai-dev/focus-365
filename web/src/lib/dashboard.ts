@@ -16,7 +16,7 @@ export type CheckinView = {
   present: boolean;
   mood: number;
   energy: number;
-  discipline: number;
+  win: string;
 };
 
 export type TrainingView = {

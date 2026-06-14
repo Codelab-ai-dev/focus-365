@@ -210,7 +210,7 @@ function CheckinCard({ s }: { s: Snapshot }) {
   return (
     <Tile to="/check-in" title="Check-in de hoy" bg="bg-sun-bg text-sun-fg">
       {s.checkin?.present ? (
-        <span className="text-xs font-bold">Hecho ✓ · disciplina {s.checkin.discipline}</span>
+        <span className="text-xs font-bold">Hecho ✓{s.checkin.win ? ` · ${s.checkin.win}` : ""}</span>
       ) : (
         <span className="text-xs opacity-80">Pendiente</span>
       )}

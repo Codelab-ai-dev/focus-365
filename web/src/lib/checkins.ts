@@ -5,8 +5,13 @@ export type CheckIn = {
   date: string;
   mood: number;
   energy: number;
-  discipline: number;
-  note: string;
+  espiritual: string;
+  emocional: string;
+  fisica: string;
+  financiera: string;
+  win: string;
+  avoided: string;
+  commitments: string[];
   created_at: string;
   updated_at: string;
 };
@@ -15,8 +20,13 @@ export type CheckInInput = {
   date: string;
   mood: number;
   energy: number;
-  discipline: number;
-  note: string;
+  espiritual: string;
+  emocional: string;
+  fisica: string;
+  financiera: string;
+  win: string;
+  avoided: string;
+  commitments: string[];
 };
 
 // getToday devuelve el check-in del día o null si no existe.

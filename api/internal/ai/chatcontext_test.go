@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"strings"
 	"testing"
 	"time"
 
@@ -64,7 +65,7 @@ func TestChatContextComposesJSON(t *testing.T) {
 		{Cycle: "2026-05", Income: 10000, Expense: 8000, Net: 2000, Status: "verde"},
 	}
 	cks := []checkin.CheckIn{
-		{ID: "c1", Date: "2026-06-10", Mood: 7, Energy: 6},
+		{ID: "c1", Date: "2026-06-10", Mood: 7, Energy: 6, Espiritual: "reto día 2"},
 	}
 	lister := &fakeLister{list: cks}
 	hab := fakeHabits{list: []habits.Habit{{ID: "h1", Name: "Meditar", DoneToday: false}}}
@@ -104,6 +105,9 @@ func TestChatContextComposesJSON(t *testing.T) {
 	}
 	if len(payload.Goals) != 1 || payload.Goals[0].ID != "g1" {
 		t.Errorf("goals mal compuesto: %s", out)
+	}
+	if !strings.Contains(out, "reto día 2") {
+		t.Errorf("el contexto debe incluir la reflexión espiritual: %s", out)
 	}
 }
 

@@ -1,6 +1,7 @@
 package checkin
 
 import (
+	"context"
 	"net/http"
 	"strconv"
 	"time"
@@ -8,6 +9,7 @@ import (
 	"github.com/focus365/api/internal/auth"
 	"github.com/focus365/api/internal/httpx"
 	"github.com/go-chi/chi/v5"
+	"github.com/google/uuid"
 )
 
 const (
@@ -28,15 +30,21 @@ type upsertReq struct {
 	Commitments []string `json:"commitments"`
 }
 
-func Routes(svc *Service) http.Handler {
+// commitmentWriter es lo que el check-in usa para guardar los compromisos de
+// mañana (lo implementa commitments.Service).
+type commitmentWriter interface {
+	ReplaceForDate(ctx context.Context, userID uuid.UUID, target time.Time, texts []string) error
+}
+
+func Routes(svc *Service, commits commitmentWriter) http.Handler {
 	r := chi.NewRouter()
-	r.Post("/", handleUpsert(svc))
+	r.Post("/", handleUpsert(svc, commits))
 	r.Get("/today", handleToday(svc))
 	r.Get("/", handleList(svc))
 	return r
 }
 
-func handleUpsert(svc *Service) http.HandlerFunc {
+func handleUpsert(svc *Service, commits commitmentWriter) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		userID, ok := auth.UserIDFromContext(r.Context())
 		if !ok {
@@ -59,6 +67,11 @@ func handleUpsert(svc *Service) http.HandlerFunc {
 			Win: req.Win, Avoided: req.Avoided,
 		})
 		if err != nil {
+			httpx.WriteErr(w, http.StatusInternalServerError, "error interno")
+			return
+		}
+		// Los compromisos del body son para MAÑANA (target = fecha del check-in + 1).
+		if err := commits.ReplaceForDate(r.Context(), userID, date.AddDate(0, 0, 1), req.Commitments); err != nil {
 			httpx.WriteErr(w, http.StatusInternalServerError, "error interno")
 			return
 		}

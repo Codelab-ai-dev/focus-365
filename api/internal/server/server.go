@@ -7,6 +7,7 @@ import (
 	"github.com/focus365/api/internal/ai"
 	"github.com/focus365/api/internal/auth"
 	"github.com/focus365/api/internal/checkin"
+	"github.com/focus365/api/internal/commitments"
 	"github.com/focus365/api/internal/dashboard"
 	"github.com/focus365/api/internal/finance"
 	"github.com/focus365/api/internal/goals"
@@ -37,6 +38,7 @@ func New(d Deps) http.Handler {
 	trainingSvc := training.NewService(q, d.Pool)
 	habitsSvc := habits.NewService(q)
 	goalsSvc := goals.NewService(q)
+	commitmentsSvc := commitments.NewService(q, d.Pool)
 
 	r := chi.NewRouter()
 	r.Use(middleware.RequestID)
@@ -50,7 +52,8 @@ func New(d Deps) http.Handler {
 		r.Mount("/auth", auth.Routes(authSvc, d.CookieSecure))
 		r.Group(func(r chi.Router) {
 			r.Use(auth.RequireAuth(tm))
-			r.Mount("/checkins", checkin.Routes(checkinSvc))
+			r.Mount("/checkins", checkin.Routes(checkinSvc, commitmentsSvc))
+			r.Mount("/commitments", commitments.Routes(commitmentsSvc))
 			r.Mount("/finances", finance.Routes(financeSvc))
 			r.Mount("/training", training.Routes(trainingSvc))
 			r.Mount("/habits", habits.Routes(habitsSvc))

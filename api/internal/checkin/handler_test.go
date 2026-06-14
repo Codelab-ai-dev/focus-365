@@ -10,6 +10,7 @@ import (
 
 	"github.com/focus365/api/internal/auth"
 	"github.com/focus365/api/internal/checkin"
+	"github.com/focus365/api/internal/commitments"
 	"github.com/focus365/api/internal/store"
 	"github.com/focus365/api/internal/testutil"
 	"github.com/go-chi/chi/v5"
@@ -28,7 +29,7 @@ func newEnv(t *testing.T) *env {
 	r := chi.NewRouter()
 	r.Group(func(r chi.Router) {
 		r.Use(auth.RequireAuth(tm))
-		r.Mount("/checkins", checkin.Routes(checkin.NewService(q)))
+		r.Mount("/checkins", checkin.Routes(checkin.NewService(q), commitments.NewService(q, pool)))
 	})
 	return &env{h: r, auth: auth.NewService(q, tm)}
 }

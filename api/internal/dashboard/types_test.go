@@ -19,7 +19,7 @@ func TestCountActiveEmpty(t *testing.T) {
 
 func TestCountActiveAll(t *testing.T) {
 	s := &Snapshot{
-		Checkin:  &CheckinView{Present: true, Mood: 8, Energy: 6, Discipline: 9},
+		Checkin:  &CheckinView{Present: true, Mood: 8, Energy: 6, Win: "gran victoria"},
 		Streak:   StreakView{BestCurrent: 12, DoneToday: 2, Total: 4},
 		Finance:  FinanceView{Cycle: "2026-06", Net: 320000, Status: "verde"},
 		Training: TrainingView{TrainedToday: true, Type: "Fuerza"},
@@ -57,10 +57,10 @@ func TestCheckinViewNilWhenAbsent(t *testing.T) {
 	if v := checkinView(nil); v != nil {
 		t.Errorf("checkinView(nil) = %+v, want nil", v)
 	}
-	c := &checkin.CheckIn{Mood: 8, Energy: 6, Discipline: 9}
+	c := &checkin.CheckIn{Mood: 8, Energy: 6, Win: "gran victoria"}
 	v := checkinView(c)
-	if v == nil || !v.Present || v.Mood != 8 || v.Energy != 6 || v.Discipline != 9 {
-		t.Errorf("checkinView = %+v, want present 8/6/9", v)
+	if v == nil || !v.Present || v.Mood != 8 || v.Energy != 6 || v.Win != "gran victoria" {
+		t.Errorf("checkinView = %+v, want present 8/6/gran victoria", v)
 	}
 }
 

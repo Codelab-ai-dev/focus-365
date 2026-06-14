@@ -22,10 +22,10 @@ type FinanceView struct {
 // CheckinView resume el check-in de hoy. El campo `checkin` del Snapshot
 // serializa null cuando no hay check-in (puntero nil).
 type CheckinView struct {
-	Present    bool `json:"present"`
-	Mood       int  `json:"mood"`
-	Energy     int  `json:"energy"`
-	Discipline int  `json:"discipline"`
+	Present bool   `json:"present"`
+	Mood    int    `json:"mood"`
+	Energy  int    `json:"energy"`
+	Win     string `json:"win"`
 }
 
 // TrainingView indica si entrenó hoy y de qué tipo (vacío si no entrenó).

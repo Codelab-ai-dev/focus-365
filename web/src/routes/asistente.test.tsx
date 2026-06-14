@@ -72,7 +72,7 @@ function proposedMessages() {
         role: "assistant",
         content: "Propongo registrar tu check-in de hoy: ánimo 8, energía 6, disciplina 9.",
         actions: [
-          { id: "a1", kind: "checkin", payload: { mood: 8, energy: 6, discipline: 9 }, status: "proposed" },
+          { id: "a1", kind: "checkin", payload: { mood: 8, energy: 6 }, status: "proposed" },
         ],
         created_at: "2026-06-11T10:00:01Z",
       },
@@ -83,7 +83,7 @@ function proposedMessages() {
 it("una acción proposed muestra botones y confirmar la pasa a hecha", async () => {
   const fetchMock = vi.fn((url: string, opts?: RequestInit) => {
     if (url === "/api/v1/ai/actions/a1/confirm" && opts?.method === "POST") {
-      const action = { id: "a1", kind: "checkin", payload: { mood: 8, energy: 6, discipline: 9 }, status: "done" };
+      const action = { id: "a1", kind: "checkin", payload: { mood: 8, energy: 6 }, status: "done" };
       return Promise.resolve(new Response(JSON.stringify({ action }), { status: 200 }));
     }
     return Promise.resolve(new Response(JSON.stringify(proposedMessages()), { status: 200 }));
@@ -103,7 +103,7 @@ it("una acción proposed muestra botones y confirmar la pasa a hecha", async () 
 it("cancelar deja la tarjeta como cancelada sin ejecutar", async () => {
   const fetchMock = vi.fn((url: string, opts?: RequestInit) => {
     if (url === "/api/v1/ai/actions/a1/cancel" && opts?.method === "POST") {
-      const action = { id: "a1", kind: "checkin", payload: { mood: 8, energy: 6, discipline: 9 }, status: "cancelled" };
+      const action = { id: "a1", kind: "checkin", payload: { mood: 8, energy: 6 }, status: "cancelled" };
       return Promise.resolve(new Response(JSON.stringify({ action }), { status: 200 }));
     }
     return Promise.resolve(new Response(JSON.stringify(proposedMessages()), { status: 200 }));
@@ -126,7 +126,7 @@ it("un mensaje con dos acciones muestra dos tarjetas independientes", async () =
         role: "assistant",
         content: "Propongo dos cosas.",
         actions: [
-          { id: "a1", kind: "checkin", payload: { mood: 8, energy: 6, discipline: 9 }, status: "proposed" },
+          { id: "a1", kind: "checkin", payload: { mood: 8, energy: 6 }, status: "proposed" },
           { id: "a2", kind: "habito", payload: { habit_id: "h1" }, status: "proposed" },
         ],
         created_at: "2026-06-12T10:00:01Z",
@@ -135,7 +135,7 @@ it("un mensaje con dos acciones muestra dos tarjetas independientes", async () =
   };
   const fetchMock = vi.fn((url: string, opts?: RequestInit) => {
     if (url === "/api/v1/ai/actions/a1/confirm" && opts?.method === "POST") {
-      const action = { id: "a1", kind: "checkin", payload: { mood: 8, energy: 6, discipline: 9 }, status: "done" };
+      const action = { id: "a1", kind: "checkin", payload: { mood: 8, energy: 6 }, status: "done" };
       return Promise.resolve(new Response(JSON.stringify({ action }), { status: 200 }));
     }
     return Promise.resolve(new Response(JSON.stringify(twoActions), { status: 200 }));
@@ -164,7 +164,7 @@ it("una tarjeta done se puede deshacer y queda Deshecha", async () => {
         role: "assistant",
         content: "Hecho.",
         actions: [
-          { id: "a1", kind: "checkin", payload: { mood: 8, energy: 6, discipline: 9 }, status: "done" },
+          { id: "a1", kind: "checkin", payload: { mood: 8, energy: 6 }, status: "done" },
         ],
         created_at: "2026-06-12T10:00:01Z",
       },
@@ -172,7 +172,7 @@ it("una tarjeta done se puede deshacer y queda Deshecha", async () => {
   };
   const fetchMock = vi.fn((url: string, opts?: RequestInit) => {
     if (url === "/api/v1/ai/actions/a1/undo" && opts?.method === "POST") {
-      const action = { id: "a1", kind: "checkin", payload: { mood: 8, energy: 6, discipline: 9 }, status: "undone" };
+      const action = { id: "a1", kind: "checkin", payload: { mood: 8, energy: 6 }, status: "undone" };
       return Promise.resolve(new Response(JSON.stringify({ action }), { status: 200 }));
     }
     return Promise.resolve(new Response(JSON.stringify(doneMessages), { status: 200 }));

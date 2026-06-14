@@ -71,6 +71,10 @@ func handleUpsert(svc *Service, commits commitmentWriter) http.HandlerFunc {
 			return
 		}
 		// Los compromisos del body son para MAÑANA (target = fecha del check-in + 1).
+		// El upsert del check-in y la escritura de compromisos no son una sola
+		// transacción: si esto falla tras el upsert, el check-in queda guardado sin
+		// los compromisos y el usuario recibe 500. Reintentar es seguro y se
+		// auto-sana (upsert idempotente + ReplaceForDate es delete-then-insert).
 		if err := commits.ReplaceForDate(r.Context(), userID, date.AddDate(0, 0, 1), req.Commitments); err != nil {
 			httpx.WriteErr(w, http.StatusInternalServerError, "error interno")
 			return

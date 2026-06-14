@@ -62,7 +62,7 @@ func New(d Deps) http.Handler {
 			r.Mount("/dashboard", dashboard.Routes(dashboardSvc))
 			groq := ai.NewGroqClient(d.GroqAPIKey, d.GroqModel, d.GroqVisionModel)
 			aiSvc := ai.NewService(dashboardSvc, q, groq, d.GroqAPIKey != "")
-			chatCtx := ai.NewChatContextBuilder(dashboardSvc, financeSvc, checkinSvc, habitsSvc, goalsSvc)
+			chatCtx := ai.NewChatContextBuilder(dashboardSvc, financeSvc, checkinSvc, habitsSvc, goalsSvc, commitmentsSvc)
 			chatStore := ai.NewChatStore(q, d.Pool)
 			actionExec := ai.NewActionExecutor(checkinSvc, financeSvc, habitsSvc, goalsSvc, trainingSvc)
 			chatSvc := ai.NewChatService(chatCtx, chatStore, groq, groq, actionExec, d.GroqAPIKey != "")

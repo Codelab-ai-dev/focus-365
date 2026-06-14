@@ -22,16 +22,39 @@ vi.mock("@/lib/auth", () => ({
 }));
 
 import { Route as CheckInRoute } from "./check-in";
+import { todayString } from "@/lib/checkins";
+
+const TODAY = todayString();
+const TOMORROW = todayString(
+  new Date(new Date().getTime() + 24 * 60 * 60 * 1000)
+);
 
 function fetchMock() {
   return vi.fn((url: string, opts?: RequestInit) => {
+    if (url.includes("/commitments/") && url.includes("/toggle")) {
+      return Promise.resolve(
+        new Response(
+          JSON.stringify({
+            commitment: {
+              id: "x1", target_date: "2026-06-14", text: "tender", done: true,
+            },
+          }),
+          { status: 200 }
+        )
+      );
+    }
+    if (url.includes("/commitments/due")) {
+      return Promise.resolve(
+        new Response(JSON.stringify({ commitments: [] }), { status: 200 })
+      );
+    }
     if (opts?.method === "POST") {
       return Promise.resolve(
         new Response(
           JSON.stringify({
             id: "c1", date: "2026-06-10", mood: 5, energy: 5,
             espiritual: "", emocional: "", fisica: "", financiera: "",
-            win: "", avoided: "", commitments: [],
+            win: "", avoided: "",
             created_at: "", updated_at: "",
           }),
           { status: 200 }
@@ -152,6 +175,11 @@ describe("CheckInPage", () => {
     vi.stubGlobal(
       "fetch",
       vi.fn((url: string) => {
+        if (url.includes("/commitments/due")) {
+          return Promise.resolve(
+            new Response(JSON.stringify({ commitments: [] }), { status: 200 })
+          );
+        }
         if (url.includes("/today")) {
           return Promise.resolve(
             new Response(
@@ -159,7 +187,6 @@ describe("CheckInPage", () => {
                 id: "c1", date: "2026-06-10", mood: 8, energy: 7,
                 espiritual: "oré", emocional: "calma", fisica: "gym",
                 financiera: "ahorré", win: "gran día", avoided: "redes",
-                commitments: ["leer", "correr"],
                 created_at: "", updated_at: "",
               }),
               { status: 200 }
@@ -181,8 +208,141 @@ describe("CheckInPage", () => {
     expect((screen.getByLabelText("Financiera") as HTMLInputElement).value).toBe("ahorré");
     expect((screen.getByLabelText("Win del día") as HTMLInputElement).value).toBe("gran día");
     expect((screen.getByLabelText("Qué evité") as HTMLInputElement).value).toBe("redes");
-    expect((screen.getByLabelText("Compromiso 1") as HTMLInputElement).value).toBe("leer");
+  });
+
+  it("precarga la lista de mañana con getDue(tomorrow)", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((url: string) => {
+        if (url.includes(`/commitments/due?date=${TOMORROW}`)) {
+          return Promise.resolve(
+            new Response(
+              JSON.stringify({
+                commitments: [
+                  { id: "t1", target_date: TOMORROW, text: "leer", done: false },
+                  { id: "t2", target_date: TOMORROW, text: "correr", done: false },
+                ],
+              }),
+              { status: 200 }
+            )
+          );
+        }
+        if (url.includes("/commitments/due")) {
+          return Promise.resolve(
+            new Response(JSON.stringify({ commitments: [] }), { status: 200 })
+          );
+        }
+        if (url.includes("/today")) {
+          return Promise.resolve(new Response("null", { status: 200 }));
+        }
+        return Promise.resolve(new Response("[]", { status: 200 }));
+      })
+    );
+
+    renderPage();
+
+    const c1 = (await screen.findByLabelText("Compromiso 1")) as HTMLInputElement;
+    await waitFor(() => expect(c1.value).toBe("leer"));
     expect((screen.getByLabelText("Compromiso 2") as HTMLInputElement).value).toBe("correr");
+  });
+
+  it("muestra la sección «ayer te comprometiste a» cuando hay due de hoy", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((url: string) => {
+        if (url.includes(`/commitments/due?date=${TODAY}`)) {
+          return Promise.resolve(
+            new Response(
+              JSON.stringify({
+                commitments: [
+                  { id: "d1", target_date: TODAY, text: "tender la cama", done: false },
+                  { id: "d2", target_date: TODAY, text: "pasear", done: true },
+                ],
+              }),
+              { status: 200 }
+            )
+          );
+        }
+        if (url.includes("/commitments/due")) {
+          return Promise.resolve(
+            new Response(JSON.stringify({ commitments: [] }), { status: 200 })
+          );
+        }
+        if (url.includes("/today")) {
+          return Promise.resolve(new Response("null", { status: 200 }));
+        }
+        return Promise.resolve(new Response("[]", { status: 200 }));
+      })
+    );
+
+    renderPage();
+
+    expect(
+      await screen.findByText(/ayer te comprometiste a/i)
+    ).toBeInTheDocument();
+    expect(screen.getByLabelText("Marcar: tender la cama")).toBeInTheDocument();
+    expect(screen.getByText("1/2 ✓")).toBeInTheDocument();
+  });
+
+  it("no muestra la sección «ayer» si no hay due de hoy", async () => {
+    renderPage();
+    await screen.findByLabelText("Ánimo");
+    expect(
+      screen.queryByText(/ayer te comprometiste a/i)
+    ).not.toBeInTheDocument();
+  });
+
+  it("clic en un compromiso de ayer llama al toggle", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((url: string) => {
+        if (url.includes("/toggle")) {
+          return Promise.resolve(
+            new Response(
+              JSON.stringify({
+                commitment: { id: "d1", target_date: TODAY, text: "tender la cama", done: true },
+              }),
+              { status: 200 }
+            )
+          );
+        }
+        if (url.includes(`/commitments/due?date=${TODAY}`)) {
+          return Promise.resolve(
+            new Response(
+              JSON.stringify({
+                commitments: [
+                  { id: "d1", target_date: TODAY, text: "tender la cama", done: false },
+                ],
+              }),
+              { status: 200 }
+            )
+          );
+        }
+        if (url.includes("/commitments/due")) {
+          return Promise.resolve(
+            new Response(JSON.stringify({ commitments: [] }), { status: 200 })
+          );
+        }
+        if (url.includes("/today")) {
+          return Promise.resolve(new Response("null", { status: 200 }));
+        }
+        return Promise.resolve(new Response("[]", { status: 200 }));
+      })
+    );
+
+    renderPage();
+
+    const btn = await screen.findByLabelText("Marcar: tender la cama");
+    await userEvent.click(btn);
+    await waitFor(() => {
+      const calls = (globalThis.fetch as ReturnType<typeof vi.fn>).mock.calls;
+      const toggled = calls.some(
+        ([u, o]) =>
+          (u as string).includes("/commitments/d1/toggle") &&
+          (o as RequestInit)?.method === "POST"
+      );
+      expect(toggled).toBe(true);
+    });
   });
 
   it("muestra el historial de check-ins", async () => {

@@ -11,7 +11,6 @@ export type CheckIn = {
   financiera: string;
   win: string;
   avoided: string;
-  commitments: string[];
   created_at: string;
   updated_at: string;
 };

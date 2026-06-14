@@ -3,6 +3,7 @@ import { useEffect, useRef, useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useAuth } from "@/lib/auth";
 import { getToday, list, upsert, todayString, type CheckIn } from "@/lib/checkins";
+import { getDue, toggle, type Commitment } from "@/lib/commitments";
 import { PageTransition } from "@/ui/PageTransition";
 import { Card } from "@/ui/Card";
 import { Input } from "@/ui/Input";
@@ -29,6 +30,9 @@ function CheckInPage() {
   const navigate = useNavigate();
   const qc = useQueryClient();
   const today = todayString();
+  const tomorrow = todayString(
+    new Date(new Date().getTime() + 24 * 60 * 60 * 1000)
+  );
 
   useEffect(() => {
     if (!user) navigate({ to: "/login" });
@@ -42,6 +46,18 @@ function CheckInPage() {
   const historyQuery = useQuery({
     queryKey: ["checkin", "list"],
     queryFn: () => list(30),
+    enabled: !!user,
+  });
+  // Compromisos cuyo objetivo es hoy: "ayer te comprometiste a" (marcar cumplido).
+  const dueQuery = useQuery({
+    queryKey: ["commitments", "due", today],
+    queryFn: () => getDue(today),
+    enabled: !!user,
+  });
+  // Compromisos de mañana: precargan la lista editable "mañana me comprometo a".
+  const tomorrowQuery = useQuery({
+    queryKey: ["commitments", "due", tomorrow],
+    queryFn: () => getDue(tomorrow),
     enabled: !!user,
   });
 
@@ -78,10 +94,26 @@ function CheckInPage() {
       setFinanciera(ci.financiera ?? "");
       setWin(ci.win ?? "");
       setAvoided(ci.avoided ?? "");
-      setCommitments(ci.commitments ?? []);
       prefilled.current = true;
     }
   }, [todayQuery.data]);
+
+  // Precarga la lista "mañana me comprometo a" desde los compromisos de mañana,
+  // una sola vez, para no pisar lo que el usuario esté editando.
+  const commitmentsPrefilled = useRef(false);
+  useEffect(() => {
+    const data = tomorrowQuery.data;
+    if (data && !commitmentsPrefilled.current) {
+      setCommitments(data.map((c) => c.text));
+      commitmentsPrefilled.current = true;
+    }
+  }, [tomorrowQuery.data]);
+
+  const toggleMutation = useMutation({
+    mutationFn: (id: string) => toggle(id),
+    onSuccess: () =>
+      qc.invalidateQueries({ queryKey: ["commitments", "due", today] }),
+  });
 
   const mutation = useMutation({
     mutationFn: () =>
@@ -120,6 +152,40 @@ function CheckInPage() {
             Volver
           </Link>
         </header>
+
+        {dueQuery.data && dueQuery.data.length > 0 && (
+          <Card className="mt-6 p-6 space-y-3">
+            <div className="flex items-center justify-between">
+              <h2 className="font-display text-sm font-bold uppercase tracking-[0.12em] text-muted">
+                📋 Ayer te comprometiste a
+              </h2>
+              <span className="font-display text-sm font-bold text-accent">
+                {dueQuery.data.filter((c) => c.done).length}/
+                {dueQuery.data.length} ✓
+              </span>
+            </div>
+            {dueQuery.data.map((c: Commitment) => (
+              <button
+                key={c.id}
+                type="button"
+                aria-label={`Marcar: ${c.text}`}
+                onClick={() => toggleMutation.mutate(c.id)}
+                className="flex w-full items-center gap-3 rounded-lg border-[2.5px] border-ink bg-surface px-3 py-2 text-left text-sm font-bold text-ink transition-shadow hover:shadow-brutal-sm"
+              >
+                <span
+                  className={`flex h-5 w-5 shrink-0 items-center justify-center rounded border-2 border-ink text-xs ${
+                    c.done ? "bg-accent text-ink" : "bg-surface"
+                  }`}
+                >
+                  {c.done ? "✓" : ""}
+                </span>
+                <span className={c.done ? "line-through text-muted" : ""}>
+                  {c.text}
+                </span>
+              </button>
+            ))}
+          </Card>
+        )}
 
         <form
           onSubmit={(e) => {

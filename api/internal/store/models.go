@@ -56,7 +56,17 @@ type CheckIn struct {
 	DimFinanciera string    `json:"dim_financiera"`
 	Win           string    `json:"win"`
 	Avoided       string    `json:"avoided"`
-	Commitments   []byte    `json:"commitments"`
+}
+
+type Commitment struct {
+	ID         uuid.UUID `json:"id"`
+	UserID     uuid.UUID `json:"user_id"`
+	TargetDate time.Time `json:"target_date"`
+	Text       string    `json:"text"`
+	Done       bool      `json:"done"`
+	Position   int32     `json:"position"`
+	CreatedAt  time.Time `json:"created_at"`
+	UpdatedAt  time.Time `json:"updated_at"`
 }
 
 type Exercise struct {

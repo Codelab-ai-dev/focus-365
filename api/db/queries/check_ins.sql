@@ -1,7 +1,7 @@
 -- name: UpsertCheckIn :one
 INSERT INTO check_ins (user_id, date, mood, energy,
-    dim_espiritual, dim_emocional, dim_fisica, dim_financiera, win, avoided, commitments)
-VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+    dim_espiritual, dim_emocional, dim_fisica, dim_financiera, win, avoided)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
 ON CONFLICT (user_id, date)
 DO UPDATE SET
     mood = EXCLUDED.mood,
@@ -12,7 +12,6 @@ DO UPDATE SET
     dim_financiera = EXCLUDED.dim_financiera,
     win = EXCLUDED.win,
     avoided = EXCLUDED.avoided,
-    commitments = EXCLUDED.commitments,
     updated_at = now()
 RETURNING *;
 

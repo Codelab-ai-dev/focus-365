@@ -12,6 +12,7 @@ import (
 	"github.com/focus365/api/internal/ai"
 	"github.com/focus365/api/internal/auth"
 	"github.com/focus365/api/internal/checkin"
+	"github.com/focus365/api/internal/commitments"
 	"github.com/focus365/api/internal/dashboard"
 	"github.com/focus365/api/internal/finance"
 	"github.com/focus365/api/internal/goals"
@@ -98,10 +99,11 @@ func newEnv(t *testing.T, hasKey bool, comp *fakeCompleter) *env {
 	tr := training.NewService(q, pool)
 	ha := habits.NewService(q)
 	go_ := goals.NewService(q)
+	co := commitments.NewService(q, pool)
 	dash := dashboard.NewService(ci, fi, tr, ha, go_)
 
 	svc := ai.NewService(dash, q, comp, hasKey)
-	chatCtx := ai.NewChatContextBuilder(dash, fi, ci, ha, go_)
+	chatCtx := ai.NewChatContextBuilder(dash, fi, ci, ha, go_, co)
 	chatStore := ai.NewChatStore(q, pool)
 	actionExec := ai.NewActionExecutor(ci, fi, ha, go_, tr)
 	chatSvc := ai.NewChatService(chatCtx, chatStore, comp, comp, actionExec, hasKey)

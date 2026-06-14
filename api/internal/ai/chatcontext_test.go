@@ -9,12 +9,21 @@ import (
 	"time"
 
 	"github.com/focus365/api/internal/checkin"
+	"github.com/focus365/api/internal/commitments"
 	"github.com/focus365/api/internal/dashboard"
 	"github.com/focus365/api/internal/finance"
 	"github.com/focus365/api/internal/goals"
 	"github.com/focus365/api/internal/habits"
 	"github.com/google/uuid"
 )
+
+type fakeCommitments struct {
+	list []commitments.Commitment
+}
+
+func (f fakeCommitments) Recent(ctx context.Context, userID uuid.UUID, since time.Time) ([]commitments.Commitment, error) {
+	return f.list, nil
+}
 
 // fakeSnap se reutiliza desde service_test.go (mismo paquete).
 
@@ -70,8 +79,9 @@ func TestChatContextComposesJSON(t *testing.T) {
 	lister := &fakeLister{list: cks}
 	hab := fakeHabits{list: []habits.Habit{{ID: "h1", Name: "Meditar", DoneToday: false}}}
 	gls := fakeGoals{list: []goals.Goal{{ID: "g1", Title: "Ahorrar", Progress: 40, Status: "activa"}}}
+	commits := fakeCommitments{list: []commitments.Commitment{{ID: "x", TargetDate: "2026-06-14", Text: "tender la cama", Done: true}}}
 
-	b := newChatContextBuilder(fakeSnap{snap: snap}, fakeCycler{cycles: cyc}, lister, hab, gls)
+	b := newChatContextBuilder(fakeSnap{snap: snap}, fakeCycler{cycles: cyc}, lister, hab, gls, commits)
 	out, err := b.build(context.Background(), uuid.New(), time.Now())
 	if err != nil {
 		t.Fatalf("build: %v", err)
@@ -109,6 +119,9 @@ func TestChatContextComposesJSON(t *testing.T) {
 	if !strings.Contains(out, "reto día 2") {
 		t.Errorf("el contexto debe incluir la reflexión espiritual: %s", out)
 	}
+	if !strings.Contains(out, "tender la cama") {
+		t.Errorf("el contexto debe incluir los compromisos: %s", out)
+	}
 }
 
 func TestChatContextPropagatesError(t *testing.T) {
@@ -118,6 +131,7 @@ func TestChatContextPropagatesError(t *testing.T) {
 		&fakeLister{},
 		fakeHabits{},
 		fakeGoals{},
+		fakeCommitments{},
 	)
 	if _, err := b.build(context.Background(), uuid.New(), time.Now()); err == nil {
 		t.Fatal("esperaba propagar el error de Snapshot")

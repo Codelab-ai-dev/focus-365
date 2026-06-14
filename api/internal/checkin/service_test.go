@@ -171,7 +171,6 @@ func TestUpsertFullRoundTrip(t *testing.T) {
 		Espiritual: "día 3 del reto", Emocional: "llegaron mis hijas",
 		Fisica: "rutina de piernas", Financiera: "0 gastos",
 		Win: "ver a mis hijas", Avoided: "0 alcohol",
-		Commitments: []string{"Tender la cama", "Pasear a Ruffo"},
 	}
 	ci, err := svc.Upsert(ctx, userID, in)
 	if err != nil {
@@ -179,9 +178,6 @@ func TestUpsertFullRoundTrip(t *testing.T) {
 	}
 	if ci.Mood != 8 || ci.Espiritual != "día 3 del reto" || ci.Win != "ver a mis hijas" {
 		t.Errorf("ci = %+v", ci)
-	}
-	if len(ci.Commitments) != 2 || ci.Commitments[0] != "Tender la cama" {
-		t.Errorf("commitments = %v", ci.Commitments)
 	}
 }
 
@@ -201,7 +197,6 @@ func TestUpsertMetricsPreservaReflexiones(t *testing.T) {
 	// 1. Upsert completo con reflexiones.
 	_, err = svc.Upsert(ctx, userID, checkin.Input{
 		Date: date, Mood: 5, Energy: 5, Espiritual: "reflexión previa",
-		Commitments: []string{"x"},
 	})
 	if err != nil {
 		t.Fatalf("Upsert: %v", err)
@@ -214,7 +209,7 @@ func TestUpsertMetricsPreservaReflexiones(t *testing.T) {
 	if ci.Mood != 9 || ci.Energy != 8 {
 		t.Errorf("métricas no actualizadas: %+v", ci)
 	}
-	if ci.Espiritual != "reflexión previa" || len(ci.Commitments) != 1 {
+	if ci.Espiritual != "reflexión previa" {
 		t.Errorf("UpsertMetrics pisó las reflexiones: %+v", ci)
 	}
 }
@@ -236,7 +231,7 @@ func TestUpsertMetricsCreaMinimo(t *testing.T) {
 	if err != nil {
 		t.Fatalf("UpsertMetrics: %v", err)
 	}
-	if ci.Mood != 6 || ci.Espiritual != "" || len(ci.Commitments) != 0 {
+	if ci.Mood != 6 || ci.Espiritual != "" {
 		t.Errorf("registro mínimo mal: %+v", ci)
 	}
 }

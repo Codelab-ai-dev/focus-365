@@ -139,7 +139,7 @@ func TestPopulatedDashboard(t *testing.T) {
 		t.Fatalf("crear transacción: %v", err)
 	}
 	if _, err := e.checkins.Upsert(ctx, uid, checkin.Input{
-		Date: td, Mood: 8, Energy: 6, Discipline: 9,
+		Date: td, Mood: 8, Energy: 6, Win: "gran victoria",
 	}); err != nil {
 		t.Fatalf("check-in: %v", err)
 	}

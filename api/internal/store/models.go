@@ -43,15 +43,20 @@ type AiMessage struct {
 }
 
 type CheckIn struct {
-	ID         uuid.UUID `json:"id"`
-	UserID     uuid.UUID `json:"user_id"`
-	Date       time.Time `json:"date"`
-	Mood       int32     `json:"mood"`
-	Energy     int32     `json:"energy"`
-	Discipline int32     `json:"discipline"`
-	Note       string    `json:"note"`
-	CreatedAt  time.Time `json:"created_at"`
-	UpdatedAt  time.Time `json:"updated_at"`
+	ID            uuid.UUID `json:"id"`
+	UserID        uuid.UUID `json:"user_id"`
+	Date          time.Time `json:"date"`
+	Mood          int32     `json:"mood"`
+	Energy        int32     `json:"energy"`
+	CreatedAt     time.Time `json:"created_at"`
+	UpdatedAt     time.Time `json:"updated_at"`
+	DimEspiritual string    `json:"dim_espiritual"`
+	DimEmocional  string    `json:"dim_emocional"`
+	DimFisica     string    `json:"dim_fisica"`
+	DimFinanciera string    `json:"dim_financiera"`
+	Win           string    `json:"win"`
+	Avoided       string    `json:"avoided"`
+	Commitments   []byte    `json:"commitments"`
 }
 
 type Exercise struct {

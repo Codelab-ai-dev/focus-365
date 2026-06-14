@@ -16,7 +16,7 @@ function actionDetails(action: Action): string {
   const p = action.payload as Record<string, unknown>;
   switch (action.kind) {
     case "checkin":
-      return `Ánimo ${p.mood} · Energía ${p.energy} · Disciplina ${p.discipline}`;
+      return `Ánimo ${p.mood} · Energía ${p.energy}`;
     case "movimiento":
       return `${p.type === "income" ? "Ingreso" : "Gasto"} de $${(Number(p.amount_centavos) / 100).toFixed(2)} en ${p.category}`;
     case "habito":

@@ -40,10 +40,8 @@ var toolNameToKind = map[string]string{
 }
 
 type checkinPayload struct {
-	Mood       int    `json:"mood"`
-	Energy     int    `json:"energy"`
-	Discipline int    `json:"discipline"`
-	Note       string `json:"note,omitempty"`
+	Mood   int `json:"mood"`
+	Energy int `json:"energy"`
 }
 
 type movimientoPayload struct {
@@ -119,13 +117,11 @@ func parseActionPayload(kind, args string) (json.RawMessage, error) {
 		if err := dec(&p); err != nil {
 			return nil, err
 		}
-		for _, c := range []struct {
-			v int
-			n string
-		}{{p.Mood, "mood"}, {p.Energy, "energy"}, {p.Discipline, "discipline"}} {
-			if err := rango(c.v, 1, 10, c.n); err != nil {
-				return nil, err
-			}
+		if err := rango(p.Mood, 1, 10, "mood"); err != nil {
+			return nil, err
+		}
+		if err := rango(p.Energy, 1, 10, "energy"); err != nil {
+			return nil, err
 		}
 		return json.Marshal(p)
 	case actionMovimiento:
@@ -234,7 +230,7 @@ func actionSummary(kind string, payload json.RawMessage) string {
 	case actionCheckin:
 		var p checkinPayload
 		_ = json.Unmarshal(payload, &p)
-		return fmt.Sprintf("Propongo registrar tu check-in de hoy: ánimo %d, energía %d, disciplina %d.", p.Mood, p.Energy, p.Discipline)
+		return fmt.Sprintf("Propongo registrar tus métricas de hoy: ánimo %d, energía %d.", p.Mood, p.Energy)
 	case actionMovimiento:
 		var p movimientoPayload
 		_ = json.Unmarshal(payload, &p)
@@ -276,8 +272,10 @@ var (
 )
 
 // Interfaces estrechas (capacidades) sobre los servicios de dominio.
-type checkinUpserter interface {
-	Upsert(ctx context.Context, userID uuid.UUID, in checkin.Input) (*checkin.CheckIn, error)
+// La acción de check-in es solo-métricas: actualiza mood/energy sin pisar las
+// reflexiones 4D que el usuario escribe en el formulario.
+type checkinMetrics interface {
+	UpsertMetrics(ctx context.Context, userID uuid.UUID, date time.Time, mood, energy int) (*checkin.CheckIn, error)
 }
 
 type checkinUndoer interface {
@@ -332,7 +330,7 @@ type workoutDeleter interface {
 // Interfaces compuestas por servicio real: el ejecutor depende de una por
 // servicio de dominio (cada una embebe las capacidades que necesita).
 type checkinSvc interface {
-	checkinUpserter
+	checkinMetrics
 	checkinUndoer
 }
 
@@ -377,8 +375,10 @@ func NewActionExecutor(c checkinSvc, f financeSvc, h habitsSvc, g goalsSvc, t tr
 
 // Tipos de result persistidos al confirmar; el undo los lee para revertir.
 type checkinResult struct {
-	Prev *checkinPayload `json:"prev"`
-	Date string          `json:"date"`
+	Existed    bool   `json:"existed"`
+	PrevMood   int    `json:"prev_mood"`
+	PrevEnergy int    `json:"prev_energy"`
+	Date       string `json:"date"`
 }
 
 type idResult struct {
@@ -407,19 +407,19 @@ func (e *actionExecutor) execute(ctx context.Context, userID uuid.UUID, kind str
 	case actionCheckin:
 		var p checkinPayload
 		_ = json.Unmarshal(normalized, &p)
-		// Lee el check-in del día ANTES del upsert para poder restaurarlo.
-		var prev *checkinPayload
-		if cur, err := e.checkin.Today(ctx, userID, today); err != nil {
-			return nil, err
-		} else if cur != nil {
-			prev = &checkinPayload{Mood: cur.Mood, Energy: cur.Energy, Discipline: cur.Discipline, Note: cur.Note}
+		// Lee el check-in del día ANTES del upsert para poder restaurar mood/energy.
+		cur, _ := e.checkin.Today(ctx, userID, today)
+		r := checkinResult{Date: dateStr}
+		if cur != nil {
+			r.Existed = true
+			r.PrevMood = cur.Mood
+			r.PrevEnergy = cur.Energy
 		}
-		if _, err := e.checkin.Upsert(ctx, userID, checkin.Input{
-			Date: today, Mood: p.Mood, Energy: p.Energy, Discipline: p.Discipline, Note: p.Note,
-		}); err != nil {
+		// Upsert parcial: no pisa las reflexiones 4D / win / compromisos.
+		if _, err := e.checkin.UpsertMetrics(ctx, userID, today, p.Mood, p.Energy); err != nil {
 			return nil, err
 		}
-		return json.Marshal(checkinResult{Prev: prev, Date: dateStr})
+		return json.Marshal(r)
 	case actionMovimiento:
 		var p movimientoPayload
 		_ = json.Unmarshal(normalized, &p)
@@ -527,14 +527,13 @@ func (e *actionExecutor) undo(ctx context.Context, userID uuid.UUID, kind string
 		if err != nil {
 			return fmt.Errorf("%w: fecha corrupta", ErrActionInvalid)
 		}
-		if r.Prev == nil {
+		if !r.Existed {
+			// La acción creó el registro: borrarlo (best-effort).
 			_, err := e.checkin.Delete(ctx, userID, date)
 			return err
 		}
-		_, err = e.checkin.Upsert(ctx, userID, checkin.Input{
-			Date: date, Mood: r.Prev.Mood, Energy: r.Prev.Energy,
-			Discipline: r.Prev.Discipline, Note: r.Prev.Note,
-		})
+		// Restaurar los números previos sin tocar las reflexiones.
+		_, err = e.checkin.UpsertMetrics(ctx, userID, date, r.PrevMood, r.PrevEnergy)
 		return err
 	case actionMovimiento:
 		var r idResult
@@ -594,13 +593,11 @@ func buildChatTools() []Tool {
 	return []Tool{
 		{
 			Name:        "registrar_checkin",
-			Description: "Registra o actualiza el check-in de HOY del usuario. Úsala solo si el usuario pide explícitamente registrar su check-in y dio los tres valores (1-10).",
+			Description: "Registra solo tus métricas del día (ánimo y energía, 1-10). Las reflexiones de las 4 dimensiones, el win y los compromisos se escriben en el formulario de check-in, no por chat. Úsala solo si el usuario da explícitamente sus dos números.",
 			Parameters: json.RawMessage(`{"type":"object","properties":{
 				"mood":{"type":"integer","minimum":1,"maximum":10,"description":"ánimo 1-10"},
-				"energy":{"type":"integer","minimum":1,"maximum":10,"description":"energía 1-10"},
-				"discipline":{"type":"integer","minimum":1,"maximum":10,"description":"disciplina 1-10"},
-				"note":{"type":"string","description":"nota opcional"}},
-				"required":["mood","energy","discipline"]}`),
+				"energy":{"type":"integer","minimum":1,"maximum":10,"description":"energía 1-10"}},
+				"required":["mood","energy"]}`),
 		},
 		{
 			Name:        "registrar_movimiento",

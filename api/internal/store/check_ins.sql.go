@@ -31,7 +31,7 @@ func (q *Queries) DeleteCheckIn(ctx context.Context, arg DeleteCheckInParams) (i
 }
 
 const getCheckInByDate = `-- name: GetCheckInByDate :one
-SELECT id, user_id, date, mood, energy, discipline, note, created_at, updated_at FROM check_ins
+SELECT id, user_id, date, mood, energy, created_at, updated_at, dim_espiritual, dim_emocional, dim_fisica, dim_financiera, win, avoided, commitments FROM check_ins
 WHERE user_id = $1 AND date = $2
 `
 
@@ -49,16 +49,21 @@ func (q *Queries) GetCheckInByDate(ctx context.Context, arg GetCheckInByDatePara
 		&i.Date,
 		&i.Mood,
 		&i.Energy,
-		&i.Discipline,
-		&i.Note,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.DimEspiritual,
+		&i.DimEmocional,
+		&i.DimFisica,
+		&i.DimFinanciera,
+		&i.Win,
+		&i.Avoided,
+		&i.Commitments,
 	)
 	return i, err
 }
 
 const listCheckIns = `-- name: ListCheckIns :many
-SELECT id, user_id, date, mood, energy, discipline, note, created_at, updated_at FROM check_ins
+SELECT id, user_id, date, mood, energy, created_at, updated_at, dim_espiritual, dim_emocional, dim_fisica, dim_financiera, win, avoided, commitments FROM check_ins
 WHERE user_id = $1
 ORDER BY date DESC
 LIMIT $2
@@ -84,10 +89,15 @@ func (q *Queries) ListCheckIns(ctx context.Context, arg ListCheckInsParams) ([]C
 			&i.Date,
 			&i.Mood,
 			&i.Energy,
-			&i.Discipline,
-			&i.Note,
 			&i.CreatedAt,
 			&i.UpdatedAt,
+			&i.DimEspiritual,
+			&i.DimEmocional,
+			&i.DimFisica,
+			&i.DimFinanciera,
+			&i.Win,
+			&i.Avoided,
+			&i.Commitments,
 		); err != nil {
 			return nil, err
 		}
@@ -100,25 +110,36 @@ func (q *Queries) ListCheckIns(ctx context.Context, arg ListCheckInsParams) ([]C
 }
 
 const upsertCheckIn = `-- name: UpsertCheckIn :one
-INSERT INTO check_ins (user_id, date, mood, energy, discipline, note)
-VALUES ($1, $2, $3, $4, $5, $6)
+INSERT INTO check_ins (user_id, date, mood, energy,
+    dim_espiritual, dim_emocional, dim_fisica, dim_financiera, win, avoided, commitments)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
 ON CONFLICT (user_id, date)
 DO UPDATE SET
     mood = EXCLUDED.mood,
     energy = EXCLUDED.energy,
-    discipline = EXCLUDED.discipline,
-    note = EXCLUDED.note,
+    dim_espiritual = EXCLUDED.dim_espiritual,
+    dim_emocional = EXCLUDED.dim_emocional,
+    dim_fisica = EXCLUDED.dim_fisica,
+    dim_financiera = EXCLUDED.dim_financiera,
+    win = EXCLUDED.win,
+    avoided = EXCLUDED.avoided,
+    commitments = EXCLUDED.commitments,
     updated_at = now()
-RETURNING id, user_id, date, mood, energy, discipline, note, created_at, updated_at
+RETURNING id, user_id, date, mood, energy, created_at, updated_at, dim_espiritual, dim_emocional, dim_fisica, dim_financiera, win, avoided, commitments
 `
 
 type UpsertCheckInParams struct {
-	UserID     uuid.UUID `json:"user_id"`
-	Date       time.Time `json:"date"`
-	Mood       int32     `json:"mood"`
-	Energy     int32     `json:"energy"`
-	Discipline int32     `json:"discipline"`
-	Note       string    `json:"note"`
+	UserID        uuid.UUID `json:"user_id"`
+	Date          time.Time `json:"date"`
+	Mood          int32     `json:"mood"`
+	Energy        int32     `json:"energy"`
+	DimEspiritual string    `json:"dim_espiritual"`
+	DimEmocional  string    `json:"dim_emocional"`
+	DimFisica     string    `json:"dim_fisica"`
+	DimFinanciera string    `json:"dim_financiera"`
+	Win           string    `json:"win"`
+	Avoided       string    `json:"avoided"`
+	Commitments   []byte    `json:"commitments"`
 }
 
 func (q *Queries) UpsertCheckIn(ctx context.Context, arg UpsertCheckInParams) (CheckIn, error) {
@@ -127,8 +148,13 @@ func (q *Queries) UpsertCheckIn(ctx context.Context, arg UpsertCheckInParams) (C
 		arg.Date,
 		arg.Mood,
 		arg.Energy,
-		arg.Discipline,
-		arg.Note,
+		arg.DimEspiritual,
+		arg.DimEmocional,
+		arg.DimFisica,
+		arg.DimFinanciera,
+		arg.Win,
+		arg.Avoided,
+		arg.Commitments,
 	)
 	var i CheckIn
 	err := row.Scan(
@@ -137,10 +163,61 @@ func (q *Queries) UpsertCheckIn(ctx context.Context, arg UpsertCheckInParams) (C
 		&i.Date,
 		&i.Mood,
 		&i.Energy,
-		&i.Discipline,
-		&i.Note,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.DimEspiritual,
+		&i.DimEmocional,
+		&i.DimFisica,
+		&i.DimFinanciera,
+		&i.Win,
+		&i.Avoided,
+		&i.Commitments,
+	)
+	return i, err
+}
+
+const upsertCheckInMetrics = `-- name: UpsertCheckInMetrics :one
+INSERT INTO check_ins (user_id, date, mood, energy)
+VALUES ($1, $2, $3, $4)
+ON CONFLICT (user_id, date)
+DO UPDATE SET
+    mood = EXCLUDED.mood,
+    energy = EXCLUDED.energy,
+    updated_at = now()
+RETURNING id, user_id, date, mood, energy, created_at, updated_at, dim_espiritual, dim_emocional, dim_fisica, dim_financiera, win, avoided, commitments
+`
+
+type UpsertCheckInMetricsParams struct {
+	UserID uuid.UUID `json:"user_id"`
+	Date   time.Time `json:"date"`
+	Mood   int32     `json:"mood"`
+	Energy int32     `json:"energy"`
+}
+
+// Upsert parcial: solo mood/energy, sin tocar reflexiones (lo usa la IA).
+func (q *Queries) UpsertCheckInMetrics(ctx context.Context, arg UpsertCheckInMetricsParams) (CheckIn, error) {
+	row := q.db.QueryRow(ctx, upsertCheckInMetrics,
+		arg.UserID,
+		arg.Date,
+		arg.Mood,
+		arg.Energy,
+	)
+	var i CheckIn
+	err := row.Scan(
+		&i.ID,
+		&i.UserID,
+		&i.Date,
+		&i.Mood,
+		&i.Energy,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.DimEspiritual,
+		&i.DimEmocional,
+		&i.DimFisica,
+		&i.DimFinanciera,
+		&i.Win,
+		&i.Avoided,
+		&i.Commitments,
 	)
 	return i, err
 }

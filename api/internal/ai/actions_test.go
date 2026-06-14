@@ -20,8 +20,8 @@ func TestParseActionPayloadValid(t *testing.T) {
 	cases := []struct {
 		kind, args string
 	}{
-		{"checkin", `{"mood":8,"energy":6,"discipline":9,"note":"bien"}`},
-		{"checkin", `{"mood":1,"energy":10,"discipline":5}`},
+		{"checkin", `{"mood":8,"energy":6}`},
+		{"checkin", `{"mood":1,"energy":10}`},
 		{"movimiento", `{"type":"expense","amount_centavos":2500000,"category":"comida"}`},
 		{"movimiento", `{"type":"income","amount_centavos":1,"category":"sueldo","remark":"junio"}`},
 		{"habito", `{"habit_id":"3b39c1f1-58a6-4012-9b69-0a3f4f6f3a11"}`},
@@ -40,8 +40,9 @@ func TestParseActionPayloadInvalid(t *testing.T) {
 	}{
 		{"kind desconocido", "borrar_todo", `{}`},
 		{"json roto", "checkin", `{mood:`},
-		{"mood fuera de rango", "checkin", `{"mood":11,"energy":6,"discipline":9}`},
-		{"mood faltante", "checkin", `{"energy":6,"discipline":9}`},
+		{"mood fuera de rango", "checkin", `{"mood":11,"energy":6}`},
+		{"mood faltante", "checkin", `{"energy":6}`},
+		{"discipline ya no se acepta", "checkin", `{"mood":8,"energy":6,"discipline":9}`},
 		{"type inválido", "movimiento", `{"type":"transfer","amount_centavos":100,"category":"x"}`},
 		{"monto cero", "movimiento", `{"type":"expense","amount_centavos":0,"category":"x"}`},
 		{"categoría vacía", "movimiento", `{"type":"expense","amount_centavos":100,"category":"  "}`},
@@ -58,8 +59,8 @@ func TestParseActionPayloadInvalid(t *testing.T) {
 }
 
 func TestActionSummaryPorKind(t *testing.T) {
-	got := actionSummary("checkin", []byte(`{"mood":8,"energy":6,"discipline":9}`))
-	for _, want := range []string{"check-in", "8", "6", "9"} {
+	got := actionSummary("checkin", []byte(`{"mood":8,"energy":6}`))
+	for _, want := range []string{"métricas", "8", "6"} {
 		if !strings.Contains(strings.ToLower(got), want) {
 			t.Errorf("summary %q no contiene %q", got, want)
 		}
@@ -156,21 +157,25 @@ func TestBuildChatToolsSiete(t *testing.T) {
 // --- Fakes para el ejecutor (uno por servicio, implementan la interfaz compuesta) ---
 
 type fakeCheckinSvc struct {
-	in      *checkin.Input  // último Upsert
-	today   *checkin.CheckIn // lo que devuelve Today()
-	todayN  int             // # llamadas a Today
-	deleted bool            // Delete() fue llamado
-	delDate time.Time       // fecha del Delete
-	delHit  bool            // Delete devuelve (true/false, ...)
-	err     error           // error real de DB para Upsert/Delete
+	today        *checkin.CheckIn // lo que devuelve Today()
+	todayN       int              // # llamadas a Today
+	metricsMood  int              // último UpsertMetrics: mood
+	metricsEnergy int             // último UpsertMetrics: energy
+	metricsN     int              // # llamadas a UpsertMetrics
+	metricsDate  time.Time        // fecha del último UpsertMetrics
+	deleted      bool             // Delete() fue llamado
+	delDate      time.Time        // fecha del Delete
+	delHit       bool             // Delete devuelve (true/false, ...)
+	err          error            // error real de DB para UpsertMetrics/Delete
 }
 
-func (f *fakeCheckinSvc) Upsert(ctx context.Context, userID uuid.UUID, in checkin.Input) (*checkin.CheckIn, error) {
+func (f *fakeCheckinSvc) UpsertMetrics(ctx context.Context, userID uuid.UUID, date time.Time, mood, energy int) (*checkin.CheckIn, error) {
 	if f.err != nil {
 		return nil, f.err
 	}
-	f.in = &in
-	return &checkin.CheckIn{}, nil
+	f.metricsN++
+	f.metricsMood, f.metricsEnergy, f.metricsDate = mood, energy, date
+	return &checkin.CheckIn{Mood: mood, Energy: energy}, nil
 }
 
 func (f *fakeCheckinSvc) Today(ctx context.Context, userID uuid.UUID, date time.Time) (*checkin.CheckIn, error) {
@@ -328,18 +333,38 @@ func newTestExecutor(c *fakeCheckinSvc, fin *fakeFinanceSvc, h *fakeHabitsSvc, g
 	return &actionExecutor{checkin: c, finance: fin, habits: h, goals: g, training: tr}
 }
 
-func TestExecutorCheckin(t *testing.T) {
-	c := &fakeCheckinSvc{}
+func TestExecutorCheckinSoloMetricas(t *testing.T) {
+	c := &fakeCheckinSvc{} // today devuelve nil (no había check-in)
 	ex := newTestExecutor(c, &fakeFinanceSvc{}, &fakeHabitsSvc{}, &fakeGoalsSvc{}, &fakeTrainingSvc{})
-	today := time.Date(2026, 6, 11, 0, 0, 0, 0, time.UTC)
-
-	_, err := ex.execute(context.Background(), uuid.New(), "checkin",
-		[]byte(`{"mood":8,"energy":6,"discipline":9,"note":"ok"}`), today)
+	today := time.Date(2026, 6, 13, 0, 0, 0, 0, time.UTC)
+	res, err := ex.execute(context.Background(), uuid.New(), "checkin", []byte(`{"mood":8,"energy":7}`), today)
 	if err != nil {
 		t.Fatalf("execute: %v", err)
 	}
-	if c.in == nil || c.in.Mood != 8 || c.in.Note != "ok" || !c.in.Date.Equal(today) {
-		t.Errorf("input = %+v", c.in)
+	if c.metricsMood != 8 || c.metricsEnergy != 7 {
+		t.Errorf("UpsertMetrics no llamado con 8/7: %+v", c)
+	}
+	if !c.metricsDate.Equal(today) {
+		t.Errorf("UpsertMetrics fecha = %s, want %s", c.metricsDate, today)
+	}
+	// result guarda existed=false (no había check-in).
+	var r checkinResult
+	_ = json.Unmarshal(res, &r)
+	if r.Existed {
+		t.Errorf("existed debería ser false: %+v", r)
+	}
+}
+
+func TestParseCheckinSoloMoodEnergy(t *testing.T) {
+	if _, err := parseActionPayload("checkin", `{"mood":8,"energy":7}`); err != nil {
+		t.Errorf("válido: %v", err)
+	}
+	// discipline ya no es campo conocido → rechazado por DisallowUnknownFields.
+	if _, err := parseActionPayload("checkin", `{"mood":8,"energy":7,"discipline":9}`); err == nil {
+		t.Error("discipline ya no debería aceptarse")
+	}
+	if _, err := parseActionPayload("checkin", `{"mood":11,"energy":7}`); err == nil {
+		t.Error("mood fuera de rango debe fallar")
 	}
 }
 
@@ -450,11 +475,11 @@ func TestExecutorEntrenamientoRedondeaGramos(t *testing.T) {
 
 func TestExecutorCheckinResultGuardaPrevYFecha(t *testing.T) {
 	today := time.Date(2026, 6, 12, 0, 0, 0, 0, time.UTC)
-	// Caso A: sin check-in previo → prev null.
+	// Caso A: sin check-in previo → existed=false.
 	c := &fakeCheckinSvc{}
 	ex := newTestExecutor(c, &fakeFinanceSvc{}, &fakeHabitsSvc{}, &fakeGoalsSvc{}, &fakeTrainingSvc{})
 	res, err := ex.execute(context.Background(), uuid.New(), "checkin",
-		[]byte(`{"mood":8,"energy":7,"discipline":9}`), today)
+		[]byte(`{"mood":8,"energy":7}`), today)
 	if err != nil {
 		t.Fatalf("execute A: %v", err)
 	}
@@ -462,8 +487,8 @@ func TestExecutorCheckinResultGuardaPrevYFecha(t *testing.T) {
 	if err := json.Unmarshal(res, &rA); err != nil {
 		t.Fatalf("unmarshal A: %v", err)
 	}
-	if rA.Prev != nil {
-		t.Errorf("prev A = %+v, want nil", rA.Prev)
+	if rA.Existed {
+		t.Errorf("existed A = true, want false")
 	}
 	if rA.Date != "2026-06-12" {
 		t.Errorf("date A = %q", rA.Date)
@@ -472,11 +497,11 @@ func TestExecutorCheckinResultGuardaPrevYFecha(t *testing.T) {
 		t.Errorf("Today llamado %d veces, want 1", c.todayN)
 	}
 
-	// Caso B: con check-in previo → prev poblado.
-	c2 := &fakeCheckinSvc{today: &checkin.CheckIn{Mood: 5, Energy: 4, Discipline: 6, Note: "meh"}}
+	// Caso B: con check-in previo → prev_mood/prev_energy poblados.
+	c2 := &fakeCheckinSvc{today: &checkin.CheckIn{Mood: 5, Energy: 4, Espiritual: "reto"}}
 	ex2 := newTestExecutor(c2, &fakeFinanceSvc{}, &fakeHabitsSvc{}, &fakeGoalsSvc{}, &fakeTrainingSvc{})
 	res2, err := ex2.execute(context.Background(), uuid.New(), "checkin",
-		[]byte(`{"mood":8,"energy":7,"discipline":9}`), today)
+		[]byte(`{"mood":8,"energy":7}`), today)
 	if err != nil {
 		t.Fatalf("execute B: %v", err)
 	}
@@ -484,8 +509,8 @@ func TestExecutorCheckinResultGuardaPrevYFecha(t *testing.T) {
 	if err := json.Unmarshal(res2, &rB); err != nil {
 		t.Fatalf("unmarshal B: %v", err)
 	}
-	if rB.Prev == nil || rB.Prev.Mood != 5 || rB.Prev.Energy != 4 || rB.Prev.Discipline != 6 || rB.Prev.Note != "meh" {
-		t.Errorf("prev B = %+v", rB.Prev)
+	if !rB.Existed || rB.PrevMood != 5 || rB.PrevEnergy != 4 {
+		t.Errorf("prev B = %+v", rB)
 	}
 }
 
@@ -510,18 +535,18 @@ func TestExecutorMovimientoResultGuardaTxID(t *testing.T) {
 
 const undoUUID = "3b39c1f1-58a6-4012-9b69-0a3f4f6f3a11"
 
-func TestUndoCheckinRestauraPrevio(t *testing.T) {
+func TestUndoCheckinConPrevioRestaura(t *testing.T) {
 	c := &fakeCheckinSvc{}
 	ex := newTestExecutor(c, &fakeFinanceSvc{}, &fakeHabitsSvc{}, &fakeGoalsSvc{}, &fakeTrainingSvc{})
-	result := []byte(`{"prev":{"mood":5,"energy":4,"discipline":6,"note":"meh"},"date":"2026-06-10"}`)
-	if err := ex.undo(context.Background(), uuid.New(), "checkin", nil, result); err != nil {
+	if err := ex.undo(context.Background(), uuid.New(), "checkin",
+		[]byte(`{"mood":8,"energy":7}`), []byte(`{"existed":true,"prev_mood":5,"prev_energy":4,"date":"2026-06-13"}`)); err != nil {
 		t.Fatalf("undo: %v", err)
 	}
-	if c.in == nil || c.in.Mood != 5 || c.in.Energy != 4 || c.in.Discipline != 6 || c.in.Note != "meh" {
-		t.Errorf("upsert prev = %+v", c.in)
+	if c.metricsMood != 5 || c.metricsEnergy != 4 {
+		t.Errorf("undo debe restaurar 5/4 vía UpsertMetrics: %+v", c)
 	}
-	if c.in.Date.Format("2006-01-02") != "2026-06-10" {
-		t.Errorf("fecha = %s, want fecha del result", c.in.Date)
+	if c.metricsDate.Format("2006-01-02") != "2026-06-13" {
+		t.Errorf("fecha = %s, want fecha del result", c.metricsDate)
 	}
 	if c.deleted {
 		t.Error("no debía borrar habiendo previo")
@@ -529,17 +554,18 @@ func TestUndoCheckinRestauraPrevio(t *testing.T) {
 }
 
 func TestUndoCheckinSinPrevioBorra(t *testing.T) {
-	c := &fakeCheckinSvc{}
+	c := &fakeCheckinSvc{} // sin previo
 	ex := newTestExecutor(c, &fakeFinanceSvc{}, &fakeHabitsSvc{}, &fakeGoalsSvc{}, &fakeTrainingSvc{})
-	result := []byte(`{"prev":null,"date":"2026-06-10"}`)
-	if err := ex.undo(context.Background(), uuid.New(), "checkin", nil, result); err != nil {
+	// result con existed=false → undo borra el día.
+	if err := ex.undo(context.Background(), uuid.New(), "checkin",
+		[]byte(`{"mood":8,"energy":7}`), []byte(`{"existed":false,"date":"2026-06-13"}`)); err != nil {
 		t.Fatalf("undo: %v", err)
 	}
-	if !c.deleted || c.delDate.Format("2006-01-02") != "2026-06-10" {
-		t.Errorf("delete = %v, fecha %s", c.deleted, c.delDate)
+	if !c.deleted || c.delDate.Format("2006-01-02") != "2026-06-13" {
+		t.Errorf("undo sin previo debe borrar el día: deleted=%v fecha=%s", c.deleted, c.delDate)
 	}
-	if c.in != nil {
-		t.Error("no debía hacer upsert sin previo")
+	if c.metricsN != 0 {
+		t.Error("no debía hacer UpsertMetrics sin previo")
 	}
 }
 

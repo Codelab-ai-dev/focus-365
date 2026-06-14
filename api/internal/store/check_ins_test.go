@@ -26,18 +26,18 @@ func TestUpsertGetListCheckIns(t *testing.T) {
 
 	// Insert inicial.
 	ci, err := q.UpsertCheckIn(ctx, store.UpsertCheckInParams{
-		UserID: user.ID, Date: d10, Mood: 7, Energy: 6, Discipline: 8, Note: "buen día",
+		UserID: user.ID, Date: d10, Mood: 7, Energy: 6, Win: "buen día", Commitments: []byte("[]"),
 	})
 	if err != nil {
 		t.Fatalf("UpsertCheckIn insert: %v", err)
 	}
-	if ci.Mood != 7 || ci.Note != "buen día" {
+	if ci.Mood != 7 || ci.Win != "buen día" {
 		t.Errorf("valores insertados incorrectos: %+v", ci)
 	}
 
 	// Upsert el mismo día actualiza (no duplica): mismo ID, valores nuevos.
 	ci2, err := q.UpsertCheckIn(ctx, store.UpsertCheckInParams{
-		UserID: user.ID, Date: d10, Mood: 3, Energy: 4, Discipline: 5, Note: "regular",
+		UserID: user.ID, Date: d10, Mood: 3, Energy: 4, Win: "regular", Commitments: []byte("[]"),
 	})
 	if err != nil {
 		t.Fatalf("UpsertCheckIn update: %v", err)
@@ -51,7 +51,7 @@ func TestUpsertGetListCheckIns(t *testing.T) {
 
 	// Otro día → fila distinta.
 	if _, err := q.UpsertCheckIn(ctx, store.UpsertCheckInParams{
-		UserID: user.ID, Date: d11, Mood: 9, Energy: 9, Discipline: 9, Note: "",
+		UserID: user.ID, Date: d11, Mood: 9, Energy: 9, Win: "", Commitments: []byte("[]"),
 	}); err != nil {
 		t.Fatalf("UpsertCheckIn d11: %v", err)
 	}

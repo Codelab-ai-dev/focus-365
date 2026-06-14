@@ -5,10 +5,24 @@ import { useAuth } from "@/lib/auth";
 import { getToday, list, upsert, todayString, type CheckIn } from "@/lib/checkins";
 import { PageTransition } from "@/ui/PageTransition";
 import { Card } from "@/ui/Card";
+import { Input } from "@/ui/Input";
 import { Button } from "@/ui/Button";
+import { Chip } from "@/ui/Chip";
 import { Reveal, RevealItem } from "@/ui/Reveal";
 
 export const Route = createFileRoute("/check-in")({ component: CheckInPage });
+
+const DIMENSIONS: {
+  key: "espiritual" | "emocional" | "fisica" | "financiera";
+  label: string;
+  short: string;
+  variant: "accent" | "danger" | "money" | "sun";
+}[] = [
+  { key: "espiritual", label: "Espiritual", short: "E", variant: "accent" },
+  { key: "emocional", label: "Emocional", short: "Em", variant: "danger" },
+  { key: "fisica", label: "Física", short: "F", variant: "money" },
+  { key: "financiera", label: "Financiera", short: "Fi", variant: "sun" },
+];
 
 function CheckInPage() {
   const { user } = useAuth();
@@ -33,9 +47,22 @@ function CheckInPage() {
 
   const [mood, setMood] = useState(5);
   const [energy, setEnergy] = useState(5);
-  const [discipline, setDiscipline] = useState(5);
-  const [note, setNote] = useState("");
+  const [espiritual, setEspiritual] = useState("");
+  const [emocional, setEmocional] = useState("");
+  const [fisica, setFisica] = useState("");
+  const [financiera, setFinanciera] = useState("");
+  const [win, setWin] = useState("");
+  const [avoided, setAvoided] = useState("");
+  const [commitments, setCommitments] = useState<string[]>([]);
   const [error, setError] = useState<string | null>(null);
+
+  const dimSetters = {
+    espiritual: setEspiritual,
+    emocional: setEmocional,
+    fisica: setFisica,
+    financiera: setFinanciera,
+  } as const;
+  const dimValues = { espiritual, emocional, fisica, financiera };
 
   // Pre-rellena el formulario una sola vez con el check-in de hoy, para no
   // pisar lo que el usuario esté editando si la query se refresca.
@@ -45,14 +72,31 @@ function CheckInPage() {
     if (ci && !prefilled.current) {
       setMood(ci.mood);
       setEnergy(ci.energy);
-      setDiscipline(ci.discipline);
-      setNote(ci.note);
+      setEspiritual(ci.espiritual ?? "");
+      setEmocional(ci.emocional ?? "");
+      setFisica(ci.fisica ?? "");
+      setFinanciera(ci.financiera ?? "");
+      setWin(ci.win ?? "");
+      setAvoided(ci.avoided ?? "");
+      setCommitments(ci.commitments ?? []);
       prefilled.current = true;
     }
   }, [todayQuery.data]);
 
   const mutation = useMutation({
-    mutationFn: () => upsert({ date: today, mood, energy, discipline, note }),
+    mutationFn: () =>
+      upsert({
+        date: today,
+        mood,
+        energy,
+        espiritual,
+        emocional,
+        fisica,
+        financiera,
+        win,
+        avoided,
+        commitments: commitments.map((c) => c.trim()).filter((c) => c !== ""),
+      }),
     onSuccess: () => {
       setError(null);
       qc.invalidateQueries({ queryKey: ["checkin", "today"] });
@@ -82,40 +126,106 @@ function CheckInPage() {
             e.preventDefault();
             mutation.mutate();
           }}
-          className="mt-6"
+          className="mt-6 space-y-6"
         >
           <Card className="p-6 space-y-6">
+            <h2 className="font-display text-sm font-bold uppercase tracking-[0.12em] text-muted">
+              ¿Cómo estoy?
+            </h2>
             <Slider label="Ánimo" value={mood} onChange={setMood} />
             <Slider label="Energía" value={energy} onChange={setEnergy} />
-            <Slider label="Disciplina" value={discipline} onChange={setDiscipline} />
+          </Card>
 
+          <Card className="p-6 space-y-4">
+            <h2 className="font-display text-sm font-bold uppercase tracking-[0.12em] text-muted">
+              Mis 4 dimensiones
+            </h2>
+            {DIMENSIONS.map((d) => (
+              <label key={d.key} className="block space-y-1">
+                <span className="flex items-center gap-2 text-sm">
+                  <Chip variant={d.variant}>{d.short}</Chip>
+                  <span className="font-bold">{d.label}</span>
+                </span>
+                <Input
+                  aria-label={d.label}
+                  placeholder="¿qué hiciste hoy?"
+                  value={dimValues[d.key]}
+                  onChange={(e) => dimSetters[d.key](e.target.value)}
+                />
+              </label>
+            ))}
+          </Card>
+
+          <Card className="p-6 space-y-4">
             <label className="block space-y-1">
               <span className="text-[10px] font-bold uppercase tracking-[0.12em] text-muted">
-                Nota
+                🏆 Win del día
               </span>
-              <textarea
-                aria-label="Nota"
-                value={note}
-                onChange={(e) => setNote(e.target.value)}
-                rows={3}
-                className="w-full rounded-lg border-[2.5px] border-ink bg-surface px-3 py-2 text-sm text-ink outline-none transition-shadow focus:shadow-brutal-sm"
+              <Input
+                aria-label="Win del día"
+                placeholder="¿qué hiciste hoy?"
+                value={win}
+                onChange={(e) => setWin(e.target.value)}
               />
             </label>
-
-            {error && (
-              <p className="rounded-md border-2 border-ink bg-danger-bg px-3 py-2 text-sm font-bold text-danger-fg shadow-brutal-sm">
-                {error}
-              </p>
-            )}
-
-            <Button
-              type="submit"
-              disabled={mutation.isPending}
-              className="w-full"
-            >
-              {mutation.isPending ? "Guardando…" : "Guardar"}
-            </Button>
+            <label className="block space-y-1">
+              <span className="text-[10px] font-bold uppercase tracking-[0.12em] text-muted">
+                🚫 ¿Qué evité hoy?
+              </span>
+              <Input
+                aria-label="Qué evité"
+                placeholder="¿qué decidiste NO hacer?"
+                value={avoided}
+                onChange={(e) => setAvoided(e.target.value)}
+              />
+            </label>
           </Card>
+
+          <Card className="p-6 space-y-3">
+            <h2 className="font-display text-sm font-bold uppercase tracking-[0.12em] text-muted">
+              Mañana me comprometo a:
+            </h2>
+            {commitments.map((c, i) => (
+              <div key={i} className="flex items-center gap-2">
+                <Input
+                  aria-label={`Compromiso ${i + 1}`}
+                  value={c}
+                  onChange={(e) =>
+                    setCommitments(
+                      commitments.map((v, j) => (j === i ? e.target.value : v))
+                    )
+                  }
+                />
+                <button
+                  type="button"
+                  aria-label={`Quitar compromiso ${i + 1}`}
+                  onClick={() =>
+                    setCommitments(commitments.filter((_, j) => j !== i))
+                  }
+                  className="shrink-0 rounded-lg border-[2.5px] border-ink bg-surface px-3 py-2 text-sm font-bold text-ink transition-shadow hover:shadow-brutal-sm"
+                >
+                  ✕
+                </button>
+              </div>
+            ))}
+            <button
+              type="button"
+              onClick={() => setCommitments([...commitments, ""])}
+              className="font-bold text-ink underline decoration-accent decoration-2 underline-offset-2 text-sm"
+            >
+              + agregar compromiso
+            </button>
+          </Card>
+
+          {error && (
+            <p className="rounded-md border-2 border-ink bg-danger-bg px-3 py-2 text-sm font-bold text-danger-fg shadow-brutal-sm">
+              {error}
+            </p>
+          )}
+
+          <Button type="submit" disabled={mutation.isPending} className="w-full">
+            {mutation.isPending ? "Guardando…" : "Guardar"}
+          </Button>
         </form>
 
         <section className="mt-8">
@@ -127,7 +237,7 @@ function CheckInPage() {
                   <Card className="flex items-center justify-between px-4 py-2 text-sm">
                     <span className="text-muted">{ci.date}</span>
                     <span>
-                      Á{ci.mood} · E{ci.energy} · D{ci.discipline}
+                      Á{ci.mood} · E{ci.energy}
                     </span>
                   </Card>
                 </RevealItem>

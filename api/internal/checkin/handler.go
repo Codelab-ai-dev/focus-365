@@ -16,11 +16,16 @@ const (
 )
 
 type upsertReq struct {
-	Date       string `json:"date" validate:"required"`
-	Mood       int    `json:"mood" validate:"required,min=1,max=10"`
-	Energy     int    `json:"energy" validate:"required,min=1,max=10"`
-	Discipline int    `json:"discipline" validate:"required,min=1,max=10"`
-	Note       string `json:"note"`
+	Date        string   `json:"date" validate:"required"`
+	Mood        int      `json:"mood" validate:"required,min=1,max=10"`
+	Energy      int      `json:"energy" validate:"required,min=1,max=10"`
+	Espiritual  string   `json:"espiritual"`
+	Emocional   string   `json:"emocional"`
+	Fisica      string   `json:"fisica"`
+	Financiera  string   `json:"financiera"`
+	Win         string   `json:"win"`
+	Avoided     string   `json:"avoided"`
+	Commitments []string `json:"commitments"`
 }
 
 func Routes(svc *Service) http.Handler {
@@ -48,7 +53,10 @@ func handleUpsert(svc *Service) http.HandlerFunc {
 			return
 		}
 		ci, err := svc.Upsert(r.Context(), userID, Input{
-			Date: date, Mood: req.Mood, Energy: req.Energy, Discipline: req.Discipline, Note: req.Note,
+			Date: date, Mood: req.Mood, Energy: req.Energy,
+			Espiritual: req.Espiritual, Emocional: req.Emocional,
+			Fisica: req.Fisica, Financiera: req.Financiera,
+			Win: req.Win, Avoided: req.Avoided, Commitments: req.Commitments,
 		})
 		if err != nil {
 			httpx.WriteErr(w, http.StatusInternalServerError, "error interno")

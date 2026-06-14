@@ -84,8 +84,6 @@ func fieldLabel(field string) string {
 		return "el ánimo"
 	case "Energy":
 		return "la energía"
-	case "Discipline":
-		return "la disciplina"
 	case "Type":
 		return "el tipo"
 	case "Amount":

@@ -298,7 +298,7 @@ func (m *memStore) SetActionStatusFrom(ctx context.Context, id, userID uuid.UUID
 }
 
 func TestChatSendStreamToolCallPersistsProposal(t *testing.T) {
-	groq := &fakeChatGroq{toolCalls: []ToolCall{{Name: "registrar_checkin", Arguments: `{"mood":8,"energy":6,"discipline":9}`}}}
+	groq := &fakeChatGroq{toolCalls: []ToolCall{{Name: "registrar_checkin", Arguments: `{"mood":8,"energy":6}`}}}
 	st := &memStore{}
 	svc := NewChatService(fakeCtx{out: "{}"}, st, groq, groq, nil, true)
 	uid := uuid.New()
@@ -369,7 +369,7 @@ func proposeCheckin(t *testing.T, svc *ChatService, uid uuid.UUID) *Message {
 }
 
 func TestConfirmActionExecutesAndTransitions(t *testing.T) {
-	groq := &fakeChatGroq{toolCalls: []ToolCall{{Name: "registrar_checkin", Arguments: `{"mood":8,"energy":6,"discipline":9}`}}}
+	groq := &fakeChatGroq{toolCalls: []ToolCall{{Name: "registrar_checkin", Arguments: `{"mood":8,"energy":6}`}}}
 	st := &memStore{}
 	c := &fakeCheckinSvc{}
 	svc := NewChatService(fakeCtx{out: "{}"}, st, groq, groq, newTestExecutor(c, &fakeFinanceSvc{}, &fakeHabitsSvc{}, &fakeGoalsSvc{}, &fakeTrainingSvc{}), true)
@@ -384,8 +384,8 @@ func TestConfirmActionExecutesAndTransitions(t *testing.T) {
 	if got.Status != "done" {
 		t.Errorf("status = %+v", got)
 	}
-	if c.in == nil || c.in.Mood != 8 {
-		t.Errorf("no ejecutó el check-in: %+v", c.in)
+	if c.metricsN == 0 || c.metricsMood != 8 {
+		t.Errorf("no ejecutó el check-in: %+v", c)
 	}
 
 	// Doble confirm → conflicto.
@@ -395,7 +395,7 @@ func TestConfirmActionExecutesAndTransitions(t *testing.T) {
 }
 
 func TestCancelActionTransitionsWithoutExecuting(t *testing.T) {
-	groq := &fakeChatGroq{toolCalls: []ToolCall{{Name: "registrar_checkin", Arguments: `{"mood":8,"energy":6,"discipline":9}`}}}
+	groq := &fakeChatGroq{toolCalls: []ToolCall{{Name: "registrar_checkin", Arguments: `{"mood":8,"energy":6}`}}}
 	st := &memStore{}
 	c := &fakeCheckinSvc{}
 	svc := NewChatService(fakeCtx{out: "{}"}, st, groq, groq, newTestExecutor(c, &fakeFinanceSvc{}, &fakeHabitsSvc{}, &fakeGoalsSvc{}, &fakeTrainingSvc{}), true)
@@ -409,7 +409,7 @@ func TestCancelActionTransitionsWithoutExecuting(t *testing.T) {
 	if got.Status != "cancelled" {
 		t.Errorf("status = %+v", got)
 	}
-	if c.in != nil {
+	if c.metricsN != 0 {
 		t.Error("cancelar no debe ejecutar nada")
 	}
 }
@@ -423,7 +423,7 @@ func TestConfirmActionNotFound(t *testing.T) {
 
 func TestChatSendStreamMultipleActions(t *testing.T) {
 	groq := &fakeChatGroq{toolCalls: []ToolCall{
-		{Name: "registrar_checkin", Arguments: `{"mood":8,"energy":7,"discipline":9}`},
+		{Name: "registrar_checkin", Arguments: `{"mood":8,"energy":7}`},
 		{Name: "marcar_habito", Arguments: `{"habit_id":"3b39c1f1-58a6-4012-9b69-0a3f4f6f3a11"}`},
 	}}
 	st := &memStore{}
@@ -446,7 +446,7 @@ func TestChatSendStreamMultipleActions(t *testing.T) {
 func TestChatSendStreamTooManyActionsDegrades(t *testing.T) {
 	var calls []ToolCall
 	for i := 0; i < 6; i++ {
-		calls = append(calls, ToolCall{Name: "registrar_checkin", Arguments: `{"mood":8,"energy":7,"discipline":9}`})
+		calls = append(calls, ToolCall{Name: "registrar_checkin", Arguments: `{"mood":8,"energy":7}`})
 	}
 	st := &memStore{}
 	groq := &fakeChatGroq{toolCalls: calls}
@@ -461,7 +461,7 @@ func TestChatSendStreamTooManyActionsDegrades(t *testing.T) {
 
 func TestChatSendStreamOneInvalidActionDiscardsAll(t *testing.T) {
 	groq := &fakeChatGroq{toolCalls: []ToolCall{
-		{Name: "registrar_checkin", Arguments: `{"mood":8,"energy":7,"discipline":9}`},
+		{Name: "registrar_checkin", Arguments: `{"mood":8,"energy":7}`},
 		{Name: "tool_inexistente", Arguments: `{}`},
 	}}
 	st := &memStore{}
@@ -491,7 +491,7 @@ func TestConfirmActionOnPlainMessageIsNotFound(t *testing.T) {
 // confirmCheckin propone y confirma un check-in, devolviendo el service, uid y actionID.
 func confirmCheckin(t *testing.T, c *fakeCheckinSvc) (*ChatService, uuid.UUID, uuid.UUID) {
 	t.Helper()
-	groq := &fakeChatGroq{toolCalls: []ToolCall{{Name: "registrar_checkin", Arguments: `{"mood":8,"energy":6,"discipline":9}`}}}
+	groq := &fakeChatGroq{toolCalls: []ToolCall{{Name: "registrar_checkin", Arguments: `{"mood":8,"energy":6}`}}}
 	svc := NewChatService(fakeCtx{out: "{}"}, &memStore{}, groq, groq, newTestExecutor(c, &fakeFinanceSvc{}, &fakeHabitsSvc{}, &fakeGoalsSvc{}, &fakeTrainingSvc{}), true)
 	uid := uuid.New()
 	msg := proposeCheckin(t, svc, uid)
@@ -530,7 +530,7 @@ func TestUndoActionSoloUnaVez(t *testing.T) {
 }
 
 func TestUndoActionDeProposedEsConflicto(t *testing.T) {
-	groq := &fakeChatGroq{toolCalls: []ToolCall{{Name: "registrar_checkin", Arguments: `{"mood":8,"energy":6,"discipline":9}`}}}
+	groq := &fakeChatGroq{toolCalls: []ToolCall{{Name: "registrar_checkin", Arguments: `{"mood":8,"energy":6}`}}}
 	svc := NewChatService(fakeCtx{out: "{}"}, &memStore{}, groq, groq, newTestExecutor(&fakeCheckinSvc{}, &fakeFinanceSvc{}, &fakeHabitsSvc{}, &fakeGoalsSvc{}, &fakeTrainingSvc{}), true)
 	uid := uuid.New()
 	msg := proposeCheckin(t, svc, uid)

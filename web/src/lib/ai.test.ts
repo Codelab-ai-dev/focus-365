@@ -176,7 +176,7 @@ describe("confirmAction / cancelAction / undoAction", () => {
   const done: Action = {
     id: "a1",
     kind: "checkin",
-    payload: { mood: 8, energy: 6, discipline: 9 },
+    payload: { mood: 8, energy: 6 },
     status: "done",
   };
 

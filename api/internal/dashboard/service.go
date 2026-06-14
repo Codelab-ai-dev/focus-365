@@ -83,7 +83,7 @@ func checkinView(c *checkin.CheckIn) *CheckinView {
 	if c == nil {
 		return nil
 	}
-	return &CheckinView{Present: true, Mood: c.Mood, Energy: c.Energy, Discipline: c.Discipline}
+	return &CheckinView{Present: true, Mood: c.Mood, Energy: c.Energy, Win: c.Win}
 }
 
 func trainingView(ws []training.Workout) TrainingView {

@@ -286,7 +286,7 @@ func proposeViaChat(t *testing.T, e *env, tok string) string {
 }
 
 func checkinToolCall() []ai.ToolCall {
-	return []ai.ToolCall{{Name: "registrar_checkin", Arguments: `{"mood":8,"energy":6,"discipline":9}`}}
+	return []ai.ToolCall{{Name: "registrar_checkin", Arguments: `{"mood":8,"energy":6}`}}
 }
 
 func TestActionConfirmHappyPath(t *testing.T) {
@@ -311,7 +311,7 @@ func TestActionConfirmHappyPath(t *testing.T) {
 	if err != nil {
 		t.Fatalf("check-in no escrito: %v", err)
 	}
-	if ci.Mood != 8 || ci.Energy != 6 || ci.Discipline != 9 {
+	if ci.Mood != 8 || ci.Energy != 6 {
 		t.Errorf("check-in = %+v", ci)
 	}
 

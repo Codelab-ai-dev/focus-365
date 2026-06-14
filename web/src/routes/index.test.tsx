@@ -28,7 +28,7 @@ function makeSnap(overrides: Partial<Snapshot> = {}): Snapshot {
   return {
     streak: { best_current: 12, done_today: 2, total: 4 },
     finance: { cycle: "2026-06", net: 320000, status: "verde" },
-    checkin: { present: true, mood: 8, energy: 6, discipline: 9 },
+    checkin: { present: true, mood: 8, energy: 6, win: "cerré el trato" },
     training: { trained_today: true, type: "Fuerza" },
     goals: { active: 3, avg_progress: 40, overdue: 1 },
     dimensions_active: 4,

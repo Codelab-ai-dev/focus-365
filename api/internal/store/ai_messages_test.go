@@ -30,27 +30,37 @@ func TestCreateAndListMessages(t *testing.T) {
 		t.Fatalf("CreateUser Bob: %v", err)
 	}
 
+	// Crear hilos para Ada y Bob.
+	adaThread, err := q.CreateThread(ctx, store.CreateThreadParams{UserID: ada.ID, Title: "Ada thread"})
+	if err != nil {
+		t.Fatalf("CreateThread Ada: %v", err)
+	}
+	bobThread, err := q.CreateThread(ctx, store.CreateThreadParams{UserID: bob.ID, Title: "Bob thread"})
+	if err != nil {
+		t.Fatalf("CreateThread Bob: %v", err)
+	}
+
 	// Ada escribe una pregunta y recibe una respuesta.
 	if _, err := q.CreateMessage(ctx, store.CreateMessageParams{
-		UserID: ada.ID, Role: "user", Content: "¿cómo voy en junio?",
+		UserID: ada.ID, ThreadID: adaThread.ID, Role: "user", Content: "¿cómo voy en junio?",
 	}); err != nil {
 		t.Fatalf("CreateMessage user: %v", err)
 	}
 	if _, err := q.CreateMessage(ctx, store.CreateMessageParams{
-		UserID: ada.ID, Role: "assistant", Content: "Vas verde este ciclo.",
+		UserID: ada.ID, ThreadID: adaThread.ID, Role: "assistant", Content: "Vas verde este ciclo.",
 	}); err != nil {
 		t.Fatalf("CreateMessage assistant: %v", err)
 	}
-	// Mensaje de Bob: no debe aparecer en el historial de Ada (scoping).
+	// Mensaje de Bob: no debe aparecer en el historial de Ada (scoping por hilo).
 	if _, err := q.CreateMessage(ctx, store.CreateMessageParams{
-		UserID: bob.ID, Role: "user", Content: "hola",
+		UserID: bob.ID, ThreadID: bobThread.ID, Role: "user", Content: "hola",
 	}); err != nil {
 		t.Fatalf("CreateMessage Bob: %v", err)
 	}
 
-	rows, err := q.ListMessages(ctx, ada.ID)
+	rows, err := q.ListThreadMessages(ctx, adaThread.ID)
 	if err != nil {
-		t.Fatalf("ListMessages: %v", err)
+		t.Fatalf("ListThreadMessages: %v", err)
 	}
 	if len(rows) != 2 {
 		t.Fatalf("Ada tiene %d mensajes, want 2 (scoping falló)", len(rows))
@@ -70,8 +80,12 @@ func TestCreateAndListMessages(t *testing.T) {
 // createAssistantMsg crea un mensaje de asistente al que colgar acciones.
 func createAssistantMsg(t *testing.T, q *store.Queries, ctx context.Context, userID uuid.UUID) store.AiMessage {
 	t.Helper()
+	th, err := q.CreateThread(ctx, store.CreateThreadParams{UserID: userID, Title: "test"})
+	if err != nil {
+		t.Fatalf("CreateThread: %v", err)
+	}
 	m, err := q.CreateMessage(ctx, store.CreateMessageParams{
-		UserID: userID, Role: "assistant", Content: "Propongo una acción.",
+		UserID: userID, ThreadID: th.ID, Role: "assistant", Content: "Propongo una acción.",
 	})
 	if err != nil {
 		t.Fatalf("CreateMessage: %v", err)

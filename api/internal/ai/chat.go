@@ -16,9 +16,30 @@ import (
 // El handler lo traduce a 503.
 var ErrUnavailable = errors.New("asistente no disponible")
 
+// ErrThreadNotFound indica que el hilo no existe o no es del usuario.
+// El handler lo traduce a 404.
+var ErrThreadNotFound = errors.New("hilo no encontrado")
+
 // chatHistoryLimit es cuántos turnos previos enviamos a Groq como contexto
 // conversacional (la cola del historial).
 const chatHistoryLimit = 10
+
+// maxThreadTitle es el largo máximo del título autogenerado/renombrado (runes).
+const maxThreadTitle = 60
+
+// deriveTitle arma el título de un hilo nuevo a partir del primer mensaje:
+// recorta espacios y limita a maxThreadTitle runes. Si queda vacío, "Nuevo hilo".
+func deriveTitle(text string) string {
+	t := strings.TrimSpace(text)
+	if t == "" {
+		return "Nuevo hilo"
+	}
+	r := []rune(t)
+	if len(r) > maxThreadTitle {
+		return string(r[:maxThreadTitle])
+	}
+	return t
+}
 
 // chatCompleter abstrae la llamada de chat a Groq (testeable con fake).
 type chatCompleter interface {
@@ -34,9 +55,19 @@ type chatStreamer interface {
 // La implementación de producción (pgChatStore) hace la escritura en una
 // transacción para no dejar mensajes huérfanos.
 type messageStore interface {
-	ListMessages(ctx context.Context, userID uuid.UUID) ([]store.AiMessage, error)
-	CreatePair(ctx context.Context, userID uuid.UUID, userText, assistantText string) (store.AiMessage, error)
-	CreatePairWithActions(ctx context.Context, userID uuid.UUID, userText, assistantText string, actions []ProposedAction) (store.AiMessage, []store.AiAction, error)
+	// Hilos
+	ListThreads(ctx context.Context, userID uuid.UUID) ([]store.ListThreadsRow, error)
+	GetThread(ctx context.Context, threadID, userID uuid.UUID) (store.AiThread, error)
+	RenameThread(ctx context.Context, threadID, userID uuid.UUID, title string) (store.AiThread, error)
+	DeleteThread(ctx context.Context, threadID, userID uuid.UUID) (int64, error)
+	ListThreadMessages(ctx context.Context, threadID uuid.UUID) ([]store.AiMessage, error)
+
+	// CreateTurn persiste el par usuario+asistente (y las acciones propuestas)
+	// en una transacción. Si threadID es nil, crea primero el hilo con `title`.
+	// Devuelve el id del hilo resuelto y la fila del asistente.
+	CreateTurn(ctx context.Context, userID uuid.UUID, threadID *uuid.UUID, title, userText, assistantText string, actions []ProposedAction) (uuid.UUID, store.AiMessage, []store.AiAction, error)
+
+	// Acciones (sin cambios)
 	ListActionsByMessages(ctx context.Context, messageIDs []uuid.UUID) ([]store.AiAction, error)
 	GetAction(ctx context.Context, id, userID uuid.UUID) (store.AiAction, error)
 	SetActionStatusFrom(ctx context.Context, id, userID uuid.UUID, to string, result []byte, from string) (store.AiAction, error)
@@ -64,10 +95,63 @@ func NewChatService(ctxb contextBuilder, q messageStore, c chatCompleter, s chat
 	return &ChatService{ctxb: ctxb, store: q, groq: c, streamer: s, exec: exec, hasKey: hasKey}
 }
 
-// History devuelve el historial completo del usuario, mapeado a la vista, con
-// las acciones de cada mensaje colgadas (un solo query para evitar N+1).
-func (s *ChatService) History(ctx context.Context, userID uuid.UUID) ([]Message, error) {
-	rows, err := s.store.ListMessages(ctx, userID)
+// Threads devuelve los hilos del usuario para la lista (ordenados por actividad).
+func (s *ChatService) Threads(ctx context.Context, userID uuid.UUID) ([]ThreadView, error) {
+	rows, err := s.store.ListThreads(ctx, userID)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]ThreadView, 0, len(rows))
+	for _, r := range rows {
+		out = append(out, ThreadView{
+			ID: r.ID.String(), Title: r.Title, Preview: r.Preview, UpdatedAt: r.UpdatedAt,
+		})
+	}
+	return out, nil
+}
+
+// RenameThread cambia el título (validando dueño y no-vacío). 404 si no es del usuario.
+func (s *ChatService) RenameThread(ctx context.Context, userID, threadID uuid.UUID, title string) (*ThreadView, error) {
+	title = strings.TrimSpace(title)
+	if title == "" {
+		return nil, ErrActionInvalid // se traduce a 400; reusamos el error de validación
+	}
+	if r := []rune(title); len(r) > maxThreadTitle {
+		title = string(r[:maxThreadTitle])
+	}
+	row, err := s.store.RenameThread(ctx, threadID, userID, title)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, ErrThreadNotFound
+		}
+		return nil, err
+	}
+	v := ThreadView{ID: row.ID.String(), Title: row.Title, UpdatedAt: row.UpdatedAt}
+	return &v, nil
+}
+
+// DeleteThread borra el hilo (cascada de mensajes y acciones). 404 si no es del usuario.
+func (s *ChatService) DeleteThread(ctx context.Context, userID, threadID uuid.UUID) error {
+	n, err := s.store.DeleteThread(ctx, threadID, userID)
+	if err != nil {
+		return err
+	}
+	if n == 0 {
+		return ErrThreadNotFound
+	}
+	return nil
+}
+
+// HistoryByThread devuelve los mensajes de un hilo (con acciones colgadas).
+// Valida que el hilo sea del usuario (404 si no).
+func (s *ChatService) HistoryByThread(ctx context.Context, userID, threadID uuid.UUID) ([]Message, error) {
+	if _, err := s.store.GetThread(ctx, threadID, userID); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, ErrThreadNotFound
+		}
+		return nil, err
+	}
+	rows, err := s.store.ListThreadMessages(ctx, threadID)
 	if err != nil {
 		return nil, err
 	}
@@ -94,103 +178,105 @@ func (s *ChatService) History(ctx context.Context, userID uuid.UUID) ([]Message,
 	return msgs, nil
 }
 
-// Send procesa una pregunta: arma contexto, carga la cola del historial, llama a
-// Groq y solo ante éxito persiste el par pregunta+respuesta. Devuelve la
-// respuesta del asistente. Degrada a ErrUnavailable sin clave o ante fallo de IA.
-func (s *ChatService) Send(ctx context.Context, userID uuid.UUID, text string, today time.Time) (*Message, error) {
-	if !s.hasKey {
-		return nil, ErrUnavailable
+// resolveThread valida el hilo destino: si threadID no es nil, confirma dueño
+// (404 si no) y devuelve la cola de mensajes del hilo. Si es nil, devuelve cola
+// vacía (hilo nuevo, se crea al persistir).
+func (s *ChatService) resolveThread(ctx context.Context, userID uuid.UUID, threadID *uuid.UUID) ([]store.AiMessage, error) {
+	if threadID == nil {
+		return nil, nil
 	}
+	if _, err := s.store.GetThread(ctx, *threadID, userID); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, ErrThreadNotFound
+		}
+		return nil, err
+	}
+	return s.store.ListThreadMessages(ctx, *threadID)
+}
 
+// Send procesa una pregunta en un hilo (o crea uno nuevo si threadID es nil).
+// Devuelve la respuesta y el id del hilo resuelto.
+func (s *ChatService) Send(ctx context.Context, userID uuid.UUID, threadID *uuid.UUID, text string, today time.Time) (*Message, uuid.UUID, error) {
+	if !s.hasKey {
+		return nil, uuid.Nil, ErrUnavailable
+	}
 	contextJSON, err := s.ctxb.build(ctx, userID, today)
 	if err != nil {
-		return nil, err
+		return nil, uuid.Nil, err
 	}
-
-	rows, err := s.store.ListMessages(ctx, userID)
+	rows, err := s.resolveThread(ctx, userID, threadID)
 	if err != nil {
-		return nil, err
+		return nil, uuid.Nil, err
 	}
 	history := buildHistory(rows, text)
 
 	reply, err := s.groq.Chat(ctx, buildChatSystemPrompt(contextJSON), history)
 	if err != nil {
-		return nil, ErrUnavailable
+		return nil, uuid.Nil, ErrUnavailable
 	}
-
-	// Solo ante éxito persistimos el par, y de forma atómica (evita mensajes de
-	// usuario huérfanos si fallara el segundo insert).
-	assistant, err := s.store.CreatePair(ctx, userID, text, reply)
+	tid, assistant, _, err := s.store.CreateTurn(ctx, userID, threadID, deriveTitle(text), text, reply, nil)
 	if err != nil {
-		return nil, err
+		return nil, uuid.Nil, err
 	}
 	v := toMessageView(assistant)
-	return &v, nil
+	return &v, tid, nil
 }
 
-// SendStream es la variante streaming de Send: re-emite cada delta vía onDelta
-// y, solo si el stream de Groq terminó sin error, persiste el par completo de
-// forma atómica. Corte a medias → ErrUnavailable y nada persistido.
-func (s *ChatService) SendStream(ctx context.Context, userID uuid.UUID, text string, today time.Time, onDelta func(string)) (*Message, error) {
+// SendStream es la variante streaming de Send.
+func (s *ChatService) SendStream(ctx context.Context, userID uuid.UUID, threadID *uuid.UUID, text string, today time.Time, onDelta func(string)) (*Message, uuid.UUID, error) {
 	if !s.hasKey {
-		return nil, ErrUnavailable
+		return nil, uuid.Nil, ErrUnavailable
 	}
-
 	contextJSON, err := s.ctxb.build(ctx, userID, today)
 	if err != nil {
-		return nil, err
+		return nil, uuid.Nil, err
 	}
-
-	rows, err := s.store.ListMessages(ctx, userID)
+	rows, err := s.resolveThread(ctx, userID, threadID)
 	if err != nil {
-		return nil, err
+		return nil, uuid.Nil, err
 	}
 	history := buildHistory(rows, text)
 
 	reply, toolCalls, err := s.streamer.ChatStream(ctx, buildChatSystemPrompt(contextJSON), history, buildChatTools(), onDelta)
 	if err != nil {
-		return nil, ErrUnavailable
+		return nil, uuid.Nil, ErrUnavailable
 	}
 
+	var proposed []ProposedAction
+	content := reply
 	if len(toolCalls) > 0 {
 		if len(toolCalls) > maxActionsPerTurn {
-			return nil, ErrUnavailable
+			return nil, uuid.Nil, ErrUnavailable
 		}
-		proposed := make([]ProposedAction, 0, len(toolCalls))
+		proposed = make([]ProposedAction, 0, len(toolCalls))
 		summaries := make([]string, 0, len(toolCalls))
 		for _, tc := range toolCalls {
 			kind, ok := toolNameToKind[tc.Name]
 			if !ok {
-				return nil, ErrUnavailable
+				return nil, uuid.Nil, ErrUnavailable
 			}
 			payload, perr := parseActionPayload(kind, tc.Arguments)
 			if perr != nil {
-				return nil, ErrUnavailable
+				return nil, uuid.Nil, ErrUnavailable
 			}
 			proposed = append(proposed, ProposedAction{Kind: kind, Payload: payload})
 			summaries = append(summaries, actionSummary(kind, payload))
 		}
-		content := strings.TrimSpace(reply)
+		content = strings.TrimSpace(reply)
 		if content == "" {
 			content = strings.Join(summaries, " ")
 		}
-		assistant, actions, cerr := s.store.CreatePairWithActions(ctx, userID, text, content, proposed)
-		if cerr != nil {
-			return nil, cerr
-		}
-		v := toMessageView(assistant)
-		for _, a := range actions {
-			v.Actions = append(v.Actions, toActionView(a))
-		}
-		return &v, nil
 	}
 
-	assistant, err := s.store.CreatePair(ctx, userID, text, reply)
-	if err != nil {
-		return nil, err
+	tid, assistant, actions, cerr := s.store.CreateTurn(ctx, userID, threadID, deriveTitle(text), text, content, proposed)
+	if cerr != nil {
+		return nil, uuid.Nil, cerr
 	}
 	v := toMessageView(assistant)
-	return &v, nil
+	for _, a := range actions {
+		v.Actions = append(v.Actions, toActionView(a))
+	}
+	return &v, tid, nil
 }
 
 // buildHistory toma la cola del historial (últimos chatHistoryLimit) y agrega el

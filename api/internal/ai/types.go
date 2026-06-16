@@ -22,6 +22,14 @@ type ActionView struct {
 	Status  string          `json:"status"`
 }
 
+// ThreadView es la vista de un hilo en la lista (se serializa a JSON).
+type ThreadView struct {
+	ID        string    `json:"id"`
+	Title     string    `json:"title"`
+	Preview   string    `json:"preview"`
+	UpdatedAt time.Time `json:"updated_at"`
+}
+
 // Message es un mensaje del chat (vista que se serializa a JSON).
 type Message struct {
 	ID        string       `json:"id"`

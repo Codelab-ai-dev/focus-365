@@ -1,7 +1,7 @@
 # Bitácora de sesión — Rebanada 21: búsqueda en el chat
 
 **Fecha:** 2026-06-17
-**Estado al cierre:** Mergeada a `main` y pusheada. **Smoke de producción pendiente del deploy manual** (auto-deploy no dispara).
+**Estado al cierre:** Completada, mergeada a `main` y **verificada en producción** (smoke 4/4 tras deploy manual; auto-deploy no disparó).
 **Rama:** `plan-21-busqueda-chat` (mezclada `--no-ff` y borrada).
 
 ## Qué se entregó
@@ -64,9 +64,9 @@ resultado abre el hilo. Borrar el término vuelve a la lista normal.
 - Backend: build + vet limpios; `go test -p 1 ./...` verde (9 tests nuevos de
   búsqueda entre store y `ai`).
 - Frontend: **131/131** + build OK.
-- **Smoke producción:** pendiente del deploy manual. `scripts/smoke-r21.sh`
-  cubre: crear hilo + renombrar, buscar sin acento (encuentra el mensaje),
-  buscar por título (encuentra el hilo), término corto → 400.
+- **Smoke producción 4/4 OK** (tras deploy manual): crear hilo + renombrar,
+  buscar sin acento (encuentra el mensaje con acento), buscar por título
+  (encuentra el hilo), término corto → 400.
 
 ## Backlog restante
 

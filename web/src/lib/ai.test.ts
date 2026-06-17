@@ -303,7 +303,7 @@ describe("searchChat", () => {
   afterEach(() => vi.restoreAllMocks());
 
   it("searchChat pega a /ai/search con el término y devuelve threads+messages", async () => {
-    const fetchMock = vi.fn(() =>
+    const fetchMock = vi.fn((_url: string, _opts?: RequestInit) =>
       okJson({
         threads: [{ id: "t1", title: "Finanzas", preview: "hola", updated_at: "" }],
         messages: [{ id: "m1", thread_id: "t1", thread_title: "Finanzas", role: "user", content: "gasté", created_at: "" }],
@@ -318,7 +318,7 @@ describe("searchChat", () => {
   });
 
   it("searchChat urlencodea el término", async () => {
-    const fetchMock = vi.fn(() => okJson({ threads: [], messages: [] }));
+    const fetchMock = vi.fn((_url: string, _opts?: RequestInit) => okJson({ threads: [], messages: [] }));
     vi.stubGlobal("fetch", fetchMock);
     await searchChat("50% más");
     const url = String(fetchMock.mock.calls[0][0]);

@@ -43,6 +43,8 @@ func Routes(svc *Service) http.Handler {
 	r.Put("/profile", handleSaveProfile(svc))
 	r.Get("/suggestion", handleGetSuggestion(svc))
 	r.Post("/suggestion", handleSuggest(svc))
+	r.Get("/adjustment", handleGetAdjustment(svc))
+	r.Post("/adjustment", handleAdjust(svc))
 	return r
 }
 
@@ -294,6 +296,52 @@ func handleSuggest(svc *Service) http.HandlerFunc {
 		now := time.Now().UTC()
 		today := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, time.UTC)
 		out, err := svc.SuggestTraining(r.Context(), userID, focus, today)
+		if err != nil {
+			if errors.Is(err, ErrUnavailable) {
+				httpx.WriteErr(w, http.StatusServiceUnavailable, "el entrenador no está disponible por ahora")
+				return
+			}
+			httpx.WriteErr(w, http.StatusInternalServerError, "error interno")
+			return
+		}
+		httpx.WriteJSON(w, http.StatusOK, out)
+	}
+}
+
+type adjustReq struct {
+	Scope string `json:"scope" validate:"required,oneof=last week"`
+}
+
+func handleGetAdjustment(svc *Service) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		userID, ok := auth.UserIDFromContext(r.Context())
+		if !ok {
+			httpx.WriteErr(w, http.StatusUnauthorized, "no autorizado")
+			return
+		}
+		a, err := svc.Adjustment(r.Context(), userID)
+		if err != nil {
+			httpx.WriteErr(w, http.StatusInternalServerError, "error interno")
+			return
+		}
+		httpx.WriteJSON(w, http.StatusOK, a) // nil -> null
+	}
+}
+
+func handleAdjust(svc *Service) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		userID, ok := auth.UserIDFromContext(r.Context())
+		if !ok {
+			httpx.WriteErr(w, http.StatusUnauthorized, "no autorizado")
+			return
+		}
+		var req adjustReq
+		if !httpx.DecodeAndValidate(w, r, &req) {
+			return
+		}
+		now := time.Now().UTC()
+		today := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, time.UTC)
+		out, err := svc.SuggestAdjustments(r.Context(), userID, req.Scope, today)
 		if err != nil {
 			if errors.Is(err, ErrUnavailable) {
 				httpx.WriteErr(w, http.StatusServiceUnavailable, "el entrenador no está disponible por ahora")

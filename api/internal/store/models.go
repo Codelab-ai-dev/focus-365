@@ -183,4 +183,5 @@ type WorkoutSet struct {
 	Reps        *int32    `json:"reps"`
 	WeightGrams *int32    `json:"weight_grams"`
 	CreatedAt   time.Time `json:"created_at"`
+	Note        string    `json:"note"`
 }

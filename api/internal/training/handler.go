@@ -21,6 +21,7 @@ type setReq struct {
 	Exercise    string `json:"exercise" validate:"required"`
 	Reps        *int32 `json:"reps" validate:"omitempty,min=0"`
 	WeightGrams *int32 `json:"weight_grams" validate:"omitempty,min=0"`
+	Note        string `json:"note"`
 }
 
 type workoutReq struct {
@@ -99,7 +100,12 @@ func handleCreateWorkout(svc *Service) http.HandlerFunc {
 		}
 		sets := make([]SetInput, 0, len(req.Sets))
 		for _, s := range req.Sets {
-			sets = append(sets, SetInput{Exercise: s.Exercise, Reps: s.Reps, WeightGrams: s.WeightGrams})
+			note := strings.TrimSpace(s.Note)
+			if utf8.RuneCountInString(note) > 200 {
+				httpx.WriteErr(w, http.StatusBadRequest, "la nota de la serie es demasiado larga")
+				return
+			}
+			sets = append(sets, SetInput{Exercise: s.Exercise, Reps: s.Reps, WeightGrams: s.WeightGrams, Note: note})
 		}
 		out, err := svc.CreateWorkout(r.Context(), userID, WorkoutInput{
 			Date: date, Type: req.Type, Note: req.Note, Sets: sets,

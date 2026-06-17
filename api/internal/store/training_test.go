@@ -113,3 +113,32 @@ func TestTrainingStore(t *testing.T) {
 		t.Errorf("el catálogo cambió al borrar la sesión: %d", len(cat))
 	}
 }
+
+func TestWorkoutSetNote(t *testing.T) {
+	pool := testutil.NewDB(t)
+	q := store.New(pool)
+	ctx := context.Background()
+	u := newUser(t, q)
+
+	ex, err := q.UpsertExercise(ctx, store.UpsertExerciseParams{UserID: u, Name: "Sentadilla"})
+	if err != nil {
+		t.Fatalf("UpsertExercise: %v", err)
+	}
+	w, err := q.CreateWorkout(ctx, store.CreateWorkoutParams{
+		UserID: u, Date: date("2026-06-17"), Type: "Pierna", Note: "",
+	})
+	if err != nil {
+		t.Fatalf("CreateWorkout: %v", err)
+	}
+	if _, err := q.CreateWorkoutSet(ctx, store.CreateWorkoutSetParams{
+		WorkoutID: w.ID, ExerciseID: ex.ID, Position: 0,
+		Reps: nil, WeightGrams: nil, Note: "leí pesado",
+	}); err != nil {
+		t.Fatalf("CreateWorkoutSet: %v", err)
+	}
+
+	rows, err := q.ListSetsByWorkout(ctx, w.ID)
+	if err != nil || len(rows) != 1 || rows[0].Note != "leí pesado" {
+		t.Fatalf("ListSetsByWorkout: %v rows=%+v", err, rows)
+	}
+}

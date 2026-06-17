@@ -45,9 +45,9 @@ func (q *Queries) CreateWorkout(ctx context.Context, arg CreateWorkoutParams) (W
 }
 
 const createWorkoutSet = `-- name: CreateWorkoutSet :one
-INSERT INTO workout_sets (workout_id, exercise_id, position, reps, weight_grams)
-VALUES ($1, $2, $3, $4, $5)
-RETURNING id, workout_id, exercise_id, position, reps, weight_grams, created_at
+INSERT INTO workout_sets (workout_id, exercise_id, position, reps, weight_grams, note)
+VALUES ($1, $2, $3, $4, $5, $6)
+RETURNING id, workout_id, exercise_id, position, reps, weight_grams, created_at, note
 `
 
 type CreateWorkoutSetParams struct {
@@ -56,6 +56,7 @@ type CreateWorkoutSetParams struct {
 	Position    int32     `json:"position"`
 	Reps        *int32    `json:"reps"`
 	WeightGrams *int32    `json:"weight_grams"`
+	Note        string    `json:"note"`
 }
 
 func (q *Queries) CreateWorkoutSet(ctx context.Context, arg CreateWorkoutSetParams) (WorkoutSet, error) {
@@ -65,6 +66,7 @@ func (q *Queries) CreateWorkoutSet(ctx context.Context, arg CreateWorkoutSetPara
 		arg.Position,
 		arg.Reps,
 		arg.WeightGrams,
+		arg.Note,
 	)
 	var i WorkoutSet
 	err := row.Scan(
@@ -75,6 +77,7 @@ func (q *Queries) CreateWorkoutSet(ctx context.Context, arg CreateWorkoutSetPara
 		&i.Reps,
 		&i.WeightGrams,
 		&i.CreatedAt,
+		&i.Note,
 	)
 	return i, err
 }
@@ -153,7 +156,7 @@ func (q *Queries) ListExercises(ctx context.Context, userID uuid.UUID) ([]Exerci
 }
 
 const listSetsByWorkout = `-- name: ListSetsByWorkout :many
-SELECT ws.position, ws.reps, ws.weight_grams, e.name AS exercise_name
+SELECT ws.position, ws.reps, ws.weight_grams, ws.note, e.name AS exercise_name
 FROM workout_sets ws
 JOIN exercises e ON e.id = ws.exercise_id
 WHERE ws.workout_id = $1
@@ -164,6 +167,7 @@ type ListSetsByWorkoutRow struct {
 	Position     int32  `json:"position"`
 	Reps         *int32 `json:"reps"`
 	WeightGrams  *int32 `json:"weight_grams"`
+	Note         string `json:"note"`
 	ExerciseName string `json:"exercise_name"`
 }
 
@@ -180,6 +184,7 @@ func (q *Queries) ListSetsByWorkout(ctx context.Context, workoutID uuid.UUID) ([
 			&i.Position,
 			&i.Reps,
 			&i.WeightGrams,
+			&i.Note,
 			&i.ExerciseName,
 		); err != nil {
 			return nil, err
@@ -193,7 +198,7 @@ func (q *Queries) ListSetsByWorkout(ctx context.Context, workoutID uuid.UUID) ([
 }
 
 const listSetsByWorkoutIDs = `-- name: ListSetsByWorkoutIDs :many
-SELECT ws.workout_id, ws.position, ws.reps, ws.weight_grams, e.name AS exercise_name
+SELECT ws.workout_id, ws.position, ws.reps, ws.weight_grams, ws.note, e.name AS exercise_name
 FROM workout_sets ws
 JOIN exercises e ON e.id = ws.exercise_id
 WHERE ws.workout_id = ANY($1::uuid[])
@@ -205,6 +210,7 @@ type ListSetsByWorkoutIDsRow struct {
 	Position     int32     `json:"position"`
 	Reps         *int32    `json:"reps"`
 	WeightGrams  *int32    `json:"weight_grams"`
+	Note         string    `json:"note"`
 	ExerciseName string    `json:"exercise_name"`
 }
 
@@ -222,6 +228,7 @@ func (q *Queries) ListSetsByWorkoutIDs(ctx context.Context, workoutIds []uuid.UU
 			&i.Position,
 			&i.Reps,
 			&i.WeightGrams,
+			&i.Note,
 			&i.ExerciseName,
 		); err != nil {
 			return nil, err

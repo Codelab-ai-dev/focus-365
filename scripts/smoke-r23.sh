@@ -39,8 +39,9 @@ echo "== 2) GET notas -> 2, orden por fecha desc =="
 N="$(curl -s "${AUTH[@]}" "$API/goals/$GID/notes")"
 COUNT="$(printf '%s' "$N" | grep -o '"note_date"' | wc -l | tr -d ' ')"
 [ "$COUNT" = "2" ] || { echo "  FALLO: esperaba 2 notas, hay $COUNT: $N"; exit 1; }
-# la primera nota debe ser la más reciente (2026-06-15)
-FIRST="$(printf '%s' "$N" | sed -n 's/.*"note_date":"\([^"]*\)".*/\1/p' | head -1)"
+# la primera nota debe ser la más reciente (2026-06-15).
+# grep -o evita el .* greedy de sed (que tomaría el ÚLTIMO note_date).
+FIRST="$(printf '%s' "$N" | grep -o '"note_date":"[^"]*"' | head -1 | sed 's/.*:"//; s/"$//')"
 [ "$FIRST" = "2026-06-15" ] || { echo "  FALLO: orden incorrecto, primera = $FIRST (want 2026-06-15)"; exit 1; }
 echo "  2 notas, orden desc OK"
 
@@ -51,7 +52,7 @@ C3="$(curl -s "${AUTH[@]}" -X POST "$API/goals/$GID/notes" -H 'Content-Type: app
 echo "  body vacío -> 400 OK"
 
 echo "== 4) borrar una nota -> 204 =="
-NID="$(printf '%s' "$N" | sed -n 's/.*"id":"\([^"]*\)".*/\1/p' | head -1)"
+NID="$(printf '%s' "$N" | grep -o '"id":"[^"]*"' | head -1 | sed 's/.*:"//; s/"$//')"
 C4="$(curl -s "${AUTH[@]}" -X DELETE "$API/goals/$GID/notes/$NID" -o /dev/null -w '%{http_code}')"
 [ "$C4" = "204" ] || { echo "  FALLO: DELETE nota -> $C4, want 204"; exit 1; }
 echo "  delete -> 204 OK"

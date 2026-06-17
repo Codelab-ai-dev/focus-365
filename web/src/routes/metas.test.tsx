@@ -20,6 +20,21 @@ vi.mock("@/lib/auth", () => ({
   AuthProvider: ({ children }: { children: React.ReactNode }) => children,
 }));
 
+vi.mock("@/lib/goalNotes", () => ({
+  listGoalNotes: vi.fn(async () => [
+    { id: "n1", goal_id: "1", note_date: "2026-06-17", body: "5k hoy", created_at: "" },
+  ]),
+  createGoalNote: vi.fn(async () => ({
+    id: "n2",
+    goal_id: "1",
+    note_date: "2026-06-18",
+    body: "nueva",
+    created_at: "",
+  })),
+  deleteGoalNote: vi.fn(async () => undefined),
+}));
+
+import { createGoalNote } from "@/lib/goalNotes";
 import { Route as MetasRoute } from "./metas";
 
 type GoalOverride = {
@@ -180,5 +195,20 @@ describe("MetasPage", () => {
     // Al menos uno de los elementos debe ser el chip (span con role implícito)
     const chip = matches.find((el) => el.tagName === "SPAN");
     expect(chip).toBeTruthy();
+  });
+
+  it("abre el modal de notas y lista las notas de la meta", async () => {
+    renderPage();
+    await userEvent.click(await screen.findByLabelText("Notas de Correr 10k"));
+    expect(await screen.findByText("5k hoy")).toBeInTheDocument();
+  });
+
+  it("agregar una nota llama a createGoalNote", async () => {
+    renderPage();
+    await userEvent.click(await screen.findByLabelText("Notas de Correr 10k"));
+    await screen.findByText("5k hoy");
+    await userEvent.type(screen.getByLabelText("Nueva nota"), "avance");
+    await userEvent.click(screen.getByRole("button", { name: /agregar/i }));
+    await waitFor(() => expect(createGoalNote).toHaveBeenCalled());
   });
 });

@@ -96,6 +96,15 @@ type Goal struct {
 	CreatedAt time.Time  `json:"created_at"`
 }
 
+type GoalNote struct {
+	ID        uuid.UUID `json:"id"`
+	GoalID    uuid.UUID `json:"goal_id"`
+	UserID    uuid.UUID `json:"user_id"`
+	NoteDate  time.Time `json:"note_date"`
+	Body      string    `json:"body"`
+	CreatedAt time.Time `json:"created_at"`
+}
+
 type Habit struct {
 	ID         uuid.UUID  `json:"id"`
 	UserID     uuid.UUID  `json:"user_id"`

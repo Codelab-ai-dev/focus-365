@@ -28,7 +28,10 @@ const maxChatChars = 2000
 func Routes(svc *Service, chat *ChatService, imp *ImportService) http.Handler {
 	r := chi.NewRouter()
 	r.Get("/insight", handleInsight(svc))
-	r.Get("/messages", handleMessages(chat))
+	r.Get("/threads", handleListThreads(chat))
+	r.Get("/threads/{id}/messages", handleThreadMessages(chat))
+	r.Patch("/threads/{id}", handleRenameThread(chat))
+	r.Delete("/threads/{id}", handleDeleteThread(chat))
 	r.Post("/chat", handleChat(chat))
 	r.Post("/chat/stream", handleChatStream(chat))
 	r.Post("/actions/{id}/confirm", handleActionConfirm(chat))
@@ -149,20 +152,49 @@ func handleInsight(svc *Service) http.HandlerFunc {
 	}
 }
 
-// messagesResponse envuelve el historial del chat.
-type messagesResponse struct {
-	Messages []Message `json:"messages"`
+type threadsResponse struct {
+	Threads []ThreadView `json:"threads"`
 }
 
-func handleMessages(chat *ChatService) http.HandlerFunc {
+func handleListThreads(chat *ChatService) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		userID, ok := auth.UserIDFromContext(r.Context())
 		if !ok {
 			httpx.WriteErr(w, http.StatusUnauthorized, "no autorizado")
 			return
 		}
-		msgs, err := chat.History(r.Context(), userID)
+		threads, err := chat.Threads(r.Context(), userID)
 		if err != nil {
+			httpx.WriteErr(w, http.StatusInternalServerError, "error interno")
+			return
+		}
+		httpx.WriteJSON(w, http.StatusOK, threadsResponse{Threads: threads})
+	}
+}
+
+// messagesResponse envuelve el historial de un hilo del chat.
+type messagesResponse struct {
+	Messages []Message `json:"messages"`
+}
+
+func handleThreadMessages(chat *ChatService) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		userID, ok := auth.UserIDFromContext(r.Context())
+		if !ok {
+			httpx.WriteErr(w, http.StatusUnauthorized, "no autorizado")
+			return
+		}
+		threadID, err := uuid.Parse(chi.URLParam(r, "id"))
+		if err != nil {
+			httpx.WriteErr(w, http.StatusNotFound, "hilo no encontrado")
+			return
+		}
+		msgs, err := chat.HistoryByThread(r.Context(), userID, threadID)
+		if err != nil {
+			if errors.Is(err, ErrThreadNotFound) {
+				httpx.WriteErr(w, http.StatusNotFound, "hilo no encontrado")
+				return
+			}
 			httpx.WriteErr(w, http.StatusInternalServerError, "error interno")
 			return
 		}
@@ -170,60 +202,140 @@ func handleMessages(chat *ChatService) http.HandlerFunc {
 	}
 }
 
+type renameThreadBody struct {
+	Title string `json:"title" validate:"required"`
+}
+
+type threadResponse struct {
+	Thread ThreadView `json:"thread"`
+}
+
+func handleRenameThread(chat *ChatService) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		userID, ok := auth.UserIDFromContext(r.Context())
+		if !ok {
+			httpx.WriteErr(w, http.StatusUnauthorized, "no autorizado")
+			return
+		}
+		threadID, err := uuid.Parse(chi.URLParam(r, "id"))
+		if err != nil {
+			httpx.WriteErr(w, http.StatusNotFound, "hilo no encontrado")
+			return
+		}
+		var body renameThreadBody
+		if !httpx.DecodeAndValidate(w, r, &body) {
+			return
+		}
+		view, err := chat.RenameThread(r.Context(), userID, threadID, body.Title)
+		if err != nil {
+			switch {
+			case errors.Is(err, ErrThreadNotFound):
+				httpx.WriteErr(w, http.StatusNotFound, "hilo no encontrado")
+			case errors.Is(err, ErrActionInvalid):
+				httpx.WriteErr(w, http.StatusBadRequest, "el título no puede estar vacío")
+			default:
+				httpx.WriteErr(w, http.StatusInternalServerError, "error interno")
+			}
+			return
+		}
+		httpx.WriteJSON(w, http.StatusOK, threadResponse{Thread: *view})
+	}
+}
+
+func handleDeleteThread(chat *ChatService) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		userID, ok := auth.UserIDFromContext(r.Context())
+		if !ok {
+			httpx.WriteErr(w, http.StatusUnauthorized, "no autorizado")
+			return
+		}
+		threadID, err := uuid.Parse(chi.URLParam(r, "id"))
+		if err != nil {
+			httpx.WriteErr(w, http.StatusNotFound, "hilo no encontrado")
+			return
+		}
+		if err := chat.DeleteThread(r.Context(), userID, threadID); err != nil {
+			if errors.Is(err, ErrThreadNotFound) {
+				httpx.WriteErr(w, http.StatusNotFound, "hilo no encontrado")
+				return
+			}
+			httpx.WriteErr(w, http.StatusInternalServerError, "error interno")
+			return
+		}
+		w.WriteHeader(http.StatusNoContent)
+	}
+}
+
 // chatRequestBody es el body de POST /ai/chat. El largo máximo se valida en el
 // handler por caracteres (ver maxChatChars), no con el tag `max` que cuenta bytes.
 type chatRequestBody struct {
-	Message string `json:"message" validate:"required"`
+	Message  string `json:"message" validate:"required"`
+	ThreadID string `json:"thread_id"`
 }
 
 // chatReplyResponse envuelve la respuesta del asistente.
 type chatReplyResponse struct {
-	Reply Message `json:"reply"`
+	Reply    Message `json:"reply"`
+	ThreadID string  `json:"thread_id"`
 }
 
 // decodeChatMessage hace la validación compartida de los endpoints de chat:
 // auth, decode, no-vacío tras trim y máximo de runes. Si algo falla escribe la
 // respuesta de error y devuelve ok=false.
-func decodeChatMessage(w http.ResponseWriter, r *http.Request) (uuid.UUID, string, bool) {
+// decodeChatMessage valida auth, decode, no-vacío y máximo de runes, y parsea el
+// thread_id opcional (vacío -> nil; presente e inválido -> 400).
+func decodeChatMessage(w http.ResponseWriter, r *http.Request) (uuid.UUID, *uuid.UUID, string, bool) {
 	userID, ok := auth.UserIDFromContext(r.Context())
 	if !ok {
 		httpx.WriteErr(w, http.StatusUnauthorized, "no autorizado")
-		return uuid.Nil, "", false
+		return uuid.Nil, nil, "", false
 	}
 	var req chatRequestBody
 	if !httpx.DecodeAndValidate(w, r, &req) {
-		return uuid.Nil, "", false
+		return uuid.Nil, nil, "", false
 	}
 	// Rechazamos mensajes vacíos tras trim (el validator `required` deja pasar
 	// cadenas de solo espacios).
 	req.Message = strings.TrimSpace(req.Message)
 	if req.Message == "" {
 		httpx.WriteErr(w, http.StatusBadRequest, "Falta el mensaje")
-		return uuid.Nil, "", false
+		return uuid.Nil, nil, "", false
 	}
 	if utf8.RuneCountInString(req.Message) > maxChatChars {
 		httpx.WriteErr(w, http.StatusBadRequest, "El mensaje es demasiado largo")
-		return uuid.Nil, "", false
+		return uuid.Nil, nil, "", false
 	}
-	return userID, req.Message, true
+	var threadID *uuid.UUID
+	if req.ThreadID != "" {
+		id, err := uuid.Parse(req.ThreadID)
+		if err != nil {
+			httpx.WriteErr(w, http.StatusBadRequest, "thread_id inválido")
+			return uuid.Nil, nil, "", false
+		}
+		threadID = &id
+	}
+	return userID, threadID, req.Message, true
 }
 
 func handleChat(chat *ChatService) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		userID, msg, ok := decodeChatMessage(w, r)
+		userID, threadID, msg, ok := decodeChatMessage(w, r)
 		if !ok {
 			return
 		}
-		reply, err := chat.Send(r.Context(), userID, msg, parseTodayParam(r))
+		reply, tid, err := chat.Send(r.Context(), userID, threadID, msg, parseTodayParam(r))
 		if err != nil {
-			if errors.Is(err, ErrUnavailable) {
+			switch {
+			case errors.Is(err, ErrThreadNotFound):
+				httpx.WriteErr(w, http.StatusNotFound, "hilo no encontrado")
+			case errors.Is(err, ErrUnavailable):
 				httpx.WriteErr(w, http.StatusServiceUnavailable, "asistente no disponible por ahora")
-				return
+			default:
+				httpx.WriteErr(w, http.StatusInternalServerError, "error interno")
 			}
-			httpx.WriteErr(w, http.StatusInternalServerError, "error interno")
 			return
 		}
-		httpx.WriteJSON(w, http.StatusOK, chatReplyResponse{Reply: *reply})
+		httpx.WriteJSON(w, http.StatusOK, chatReplyResponse{Reply: *reply, ThreadID: tid.String()})
 	}
 }
 
@@ -236,7 +348,8 @@ type errorEvent struct {
 }
 
 type doneEvent struct {
-	Reply Message `json:"reply"`
+	Reply    Message `json:"reply"`
+	ThreadID string  `json:"thread_id"`
 }
 
 // writeSSEEvent serializa data y lo escribe como evento SSE, con flush
@@ -255,7 +368,7 @@ func writeSSEEvent(w io.Writer, flusher http.Flusher, event string, data any) {
 // stream, los fallos se emiten como `event: error` (y nada se persistió).
 func handleChatStream(chat *ChatService) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		userID, msg, ok := decodeChatMessage(w, r)
+		userID, threadID, msg, ok := decodeChatMessage(w, r)
 		if !ok {
 			return
 		}
@@ -278,7 +391,7 @@ func handleChatStream(chat *ChatService) http.HandlerFunc {
 			started = true
 		}
 
-		reply, err := chat.SendStream(r.Context(), userID, msg, parseTodayParam(r), func(delta string) {
+		reply, tid, err := chat.SendStream(r.Context(), userID, threadID, msg, parseTodayParam(r), func(delta string) {
 			if !started {
 				startSSE()
 			}
@@ -286,11 +399,14 @@ func handleChatStream(chat *ChatService) http.HandlerFunc {
 		})
 		if err != nil {
 			if !started {
-				if errors.Is(err, ErrUnavailable) {
+				switch {
+				case errors.Is(err, ErrThreadNotFound):
+					httpx.WriteErr(w, http.StatusNotFound, "hilo no encontrado")
+				case errors.Is(err, ErrUnavailable):
 					httpx.WriteErr(w, http.StatusServiceUnavailable, "asistente no disponible por ahora")
-					return
+				default:
+					httpx.WriteErr(w, http.StatusInternalServerError, "error interno")
 				}
-				httpx.WriteErr(w, http.StatusInternalServerError, "error interno")
 				return
 			}
 			msgTxt := "error interno"
@@ -303,7 +419,7 @@ func handleChatStream(chat *ChatService) http.HandlerFunc {
 		if !started {
 			startSSE()
 		}
-		writeSSEEvent(w, flusher, "done", doneEvent{Reply: *reply})
+		writeSSEEvent(w, flusher, "done", doneEvent{Reply: *reply, ThreadID: tid.String()})
 	}
 }
 

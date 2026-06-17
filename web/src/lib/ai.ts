@@ -26,17 +26,32 @@ export type Message = {
   created_at: string;
 };
 
-export function getMessages(): Promise<Message[]> {
-  return apiFetch<{ messages: Message[] }>("/api/v1/ai/messages").then(
-    (r) => r.messages
-  );
+export type Thread = {
+  id: string;
+  title: string;
+  preview: string;
+  updated_at: string;
+};
+
+export function getThreads(): Promise<Thread[]> {
+  return apiFetch<{ threads: Thread[] }>("/api/v1/ai/threads").then((r) => r.threads);
 }
 
-export function sendMessage(message: string): Promise<Message> {
-  return apiFetch<{ reply: Message }>("/api/v1/ai/chat", {
-    method: "POST",
-    body: JSON.stringify({ message }),
-  }).then((r) => r.reply);
+export function getThreadMessages(threadId: string): Promise<Message[]> {
+  return apiFetch<{ messages: Message[] }>(
+    `/api/v1/ai/threads/${threadId}/messages`
+  ).then((r) => r.messages);
+}
+
+export function renameThread(id: string, title: string): Promise<Thread> {
+  return apiFetch<{ thread: Thread }>(`/api/v1/ai/threads/${id}`, {
+    method: "PATCH",
+    body: JSON.stringify({ title }),
+  }).then((r) => r.thread);
+}
+
+export function deleteThread(id: string): Promise<void> {
+  return apiFetch<void>(`/api/v1/ai/threads/${id}`, { method: "DELETE" });
 }
 
 export type ImportResult = { created: Action[]; dropped: number; truncated: boolean };
@@ -91,13 +106,15 @@ export function undoAction(id: string): Promise<Action> {
 }
 
 // sendMessageStream envía el mensaje al endpoint SSE y entrega los deltas vía
-// onDelta a medida que llegan. Resuelve con el reply persistido (evento done)
-// o rechaza con ApiError (HTTP no-ok, evento error, o stream cortado) — en
-// cuyo caso nada quedó persistido y el caller debe descartar el parcial.
+// onDelta a medida que llegan. Resuelve con el reply persistido y el threadId
+// (evento done) o rechaza con ApiError (HTTP no-ok, evento error, o stream
+// cortado) — en cuyo caso nada quedó persistido y el caller debe descartar el
+// parcial.
 export async function sendMessageStream(
   message: string,
+  threadId: string | undefined,
   onDelta: (text: string) => void
-): Promise<Message> {
+): Promise<{ reply: Message; threadId: string }> {
   const headers: Record<string, string> = { "Content-Type": "application/json" };
   const token = getAccessToken();
   if (token) headers["Authorization"] = `Bearer ${token}`;
@@ -105,7 +122,7 @@ export async function sendMessageStream(
   const res = await fetch("/api/v1/ai/chat/stream", {
     method: "POST",
     headers,
-    body: JSON.stringify({ message }),
+    body: JSON.stringify(threadId ? { message, thread_id: threadId } : { message }),
     credentials: "include",
   });
 
@@ -125,6 +142,7 @@ export async function sendMessageStream(
   const decoder = new TextDecoder();
   let buffer = "";
   let reply: Message | null = null;
+  let doneThreadId = "";
 
   const handleEvent = (raw: string) => {
     let event = "";
@@ -137,7 +155,9 @@ export async function sendMessageStream(
     if (event === "delta") {
       onDelta((JSON.parse(data) as { text: string }).text);
     } else if (event === "done") {
-      reply = (JSON.parse(data) as { reply: Message }).reply;
+      const d = JSON.parse(data) as { reply: Message; thread_id: string };
+      reply = d.reply;
+      doneThreadId = d.thread_id;
     } else if (event === "error") {
       throw new ApiError((JSON.parse(data) as { error: string }).error, 503);
     }
@@ -162,5 +182,5 @@ export async function sendMessageStream(
   }
 
   if (!reply) throw new ApiError("la respuesta se cortó, intenta de nuevo", 502);
-  return reply;
+  return { reply, threadId: doneThreadId };
 }

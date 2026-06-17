@@ -12,19 +12,25 @@ import (
 )
 
 const createMessage = `-- name: CreateMessage :one
-INSERT INTO ai_messages (user_id, role, content)
-VALUES ($1, $2, $3)
-RETURNING id, user_id, role, content, created_at
+INSERT INTO ai_messages (user_id, thread_id, role, content)
+VALUES ($1, $2, $3, $4)
+RETURNING id, user_id, role, content, created_at, thread_id
 `
 
 type CreateMessageParams struct {
-	UserID  uuid.UUID `json:"user_id"`
-	Role    string    `json:"role"`
-	Content string    `json:"content"`
+	UserID   uuid.UUID `json:"user_id"`
+	ThreadID uuid.UUID `json:"thread_id"`
+	Role     string    `json:"role"`
+	Content  string    `json:"content"`
 }
 
 func (q *Queries) CreateMessage(ctx context.Context, arg CreateMessageParams) (AiMessage, error) {
-	row := q.db.QueryRow(ctx, createMessage, arg.UserID, arg.Role, arg.Content)
+	row := q.db.QueryRow(ctx, createMessage,
+		arg.UserID,
+		arg.ThreadID,
+		arg.Role,
+		arg.Content,
+	)
 	var i AiMessage
 	err := row.Scan(
 		&i.ID,
@@ -32,18 +38,19 @@ func (q *Queries) CreateMessage(ctx context.Context, arg CreateMessageParams) (A
 		&i.Role,
 		&i.Content,
 		&i.CreatedAt,
+		&i.ThreadID,
 	)
 	return i, err
 }
 
-const listMessages = `-- name: ListMessages :many
-SELECT id, user_id, role, content, created_at FROM ai_messages
-WHERE user_id = $1
+const listThreadMessages = `-- name: ListThreadMessages :many
+SELECT id, user_id, role, content, created_at, thread_id FROM ai_messages
+WHERE thread_id = $1
 ORDER BY created_at ASC
 `
 
-func (q *Queries) ListMessages(ctx context.Context, userID uuid.UUID) ([]AiMessage, error) {
-	rows, err := q.db.Query(ctx, listMessages, userID)
+func (q *Queries) ListThreadMessages(ctx context.Context, threadID uuid.UUID) ([]AiMessage, error) {
+	rows, err := q.db.Query(ctx, listThreadMessages, threadID)
 	if err != nil {
 		return nil, err
 	}
@@ -57,6 +64,7 @@ func (q *Queries) ListMessages(ctx context.Context, userID uuid.UUID) ([]AiMessa
 			&i.Role,
 			&i.Content,
 			&i.CreatedAt,
+			&i.ThreadID,
 		); err != nil {
 			return nil, err
 		}

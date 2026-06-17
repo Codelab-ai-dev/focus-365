@@ -28,9 +28,9 @@ func postChat(t *testing.T, h http.Handler, tok, body string) (*httptest.Respons
 	return rec, out
 }
 
-func getMessages(t *testing.T, h http.Handler, tok string) (*httptest.ResponseRecorder, map[string]any) {
+func getJSON(t *testing.T, h http.Handler, tok, path string) (*httptest.ResponseRecorder, map[string]any) {
 	t.Helper()
-	req := httptest.NewRequest(http.MethodGet, "/ai/messages", nil)
+	req := httptest.NewRequest(http.MethodGet, path, nil)
 	if tok != "" {
 		req.Header.Set("Authorization", "Bearer "+tok)
 	}
@@ -39,6 +39,37 @@ func getMessages(t *testing.T, h http.Handler, tok string) (*httptest.ResponseRe
 	var out map[string]any
 	_ = json.Unmarshal(rec.Body.Bytes(), &out)
 	return rec, out
+}
+
+func patchJSON(t *testing.T, h http.Handler, tok, path, body string) (*httptest.ResponseRecorder, map[string]any) {
+	t.Helper()
+	req := httptest.NewRequest(http.MethodPatch, path, strings.NewReader(body))
+	if tok != "" {
+		req.Header.Set("Authorization", "Bearer "+tok)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+	var out map[string]any
+	_ = json.Unmarshal(rec.Body.Bytes(), &out)
+	return rec, out
+}
+
+func deleteReq(t *testing.T, h http.Handler, tok, path string) *httptest.ResponseRecorder {
+	t.Helper()
+	req := httptest.NewRequest(http.MethodDelete, path, nil)
+	if tok != "" {
+		req.Header.Set("Authorization", "Bearer "+tok)
+	}
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+	return rec
+}
+
+// threadMessages lista los mensajes de un hilo por su id.
+func threadMessages(t *testing.T, h http.Handler, tok, tid string) (*httptest.ResponseRecorder, map[string]any) {
+	t.Helper()
+	return getJSON(t, h, tok, "/ai/threads/"+tid+"/messages")
 }
 
 func TestChatHappyPathPersists(t *testing.T) {
@@ -54,8 +85,12 @@ func TestChatHappyPathPersists(t *testing.T) {
 	if reply["role"] != "assistant" || reply["content"] != "Vas verde este ciclo." {
 		t.Errorf("reply = %v", body["reply"])
 	}
+	tid, _ := body["thread_id"].(string)
+	if tid == "" {
+		t.Fatal("chat no devolvió thread_id")
+	}
 
-	rec2, body2 := getMessages(t, e.h, tok)
+	rec2, body2 := threadMessages(t, e.h, tok, tid)
 	if rec2.Code != http.StatusOK {
 		t.Fatalf("messages code = %d", rec2.Code)
 	}
@@ -74,7 +109,7 @@ func TestChatRequiresAuth(t *testing.T) {
 	if rec, _ := postChat(t, e.h, "", `{"message":"hola"}`); rec.Code != http.StatusUnauthorized {
 		t.Errorf("POST sin token code = %d, want 401", rec.Code)
 	}
-	if rec, _ := getMessages(t, e.h, ""); rec.Code != http.StatusUnauthorized {
+	if rec, _ := getJSON(t, e.h, "", "/ai/threads"); rec.Code != http.StatusUnauthorized {
 		t.Errorf("GET sin token code = %d, want 401", rec.Code)
 	}
 }
@@ -117,10 +152,10 @@ func TestChatNoKeyDegrades(t *testing.T) {
 	if rec.Code != http.StatusServiceUnavailable {
 		t.Errorf("sin clave code = %d, want 503", rec.Code)
 	}
-	_, body := getMessages(t, e.h, tok)
-	msgs, _ := body["messages"].([]any)
-	if len(msgs) != 0 {
-		t.Errorf("degradado no debe persistir, got %d mensajes", len(msgs))
+	_, body := getJSON(t, e.h, tok, "/ai/threads")
+	threads, _ := body["threads"].([]any)
+	if len(threads) != 0 {
+		t.Errorf("degradado no debe crear hilos, got %d", len(threads))
 	}
 }
 
@@ -128,13 +163,13 @@ func TestChatEmptyHistory(t *testing.T) {
 	e := newEnv(t, true, &fakeCompleter{chatOut: "x"})
 	_, tok := e.user(t, "fresh@b.com")
 
-	rec, body := getMessages(t, e.h, tok)
+	rec, body := getJSON(t, e.h, tok, "/ai/threads")
 	if rec.Code != http.StatusOK {
 		t.Fatalf("code = %d", rec.Code)
 	}
-	msgs, ok := body["messages"].([]any)
-	if !ok || len(msgs) != 0 {
-		t.Errorf("historial fresco = %v, want []", body["messages"])
+	threads, ok := body["threads"].([]any)
+	if !ok || len(threads) != 0 {
+		t.Errorf("usuario fresco = %v, want []", body["threads"])
 	}
 }
 
@@ -148,6 +183,24 @@ func postChatStream(t *testing.T, h http.Handler, tok, body string) *httptest.Re
 	rec := httptest.NewRecorder()
 	h.ServeHTTP(rec, req)
 	return rec
+}
+
+// threadIDFromDoneSSE extrae el thread_id del evento `done` de un body SSE.
+func threadIDFromDoneSSE(t *testing.T, sse string) string {
+	t.Helper()
+	for _, line := range strings.Split(sse, "\n") {
+		data, found := strings.CutPrefix(line, "data: ")
+		if !found {
+			continue
+		}
+		var ev struct {
+			ThreadID string `json:"thread_id"`
+		}
+		if err := json.Unmarshal([]byte(data), &ev); err == nil && ev.ThreadID != "" {
+			return ev.ThreadID
+		}
+	}
+	return ""
 }
 
 func TestChatStreamHappyPath(t *testing.T) {
@@ -174,8 +227,12 @@ func TestChatStreamHappyPath(t *testing.T) {
 			t.Errorf("body SSE no contiene %q:\n%s", want, body)
 		}
 	}
+	tid := threadIDFromDoneSSE(t, body)
+	if tid == "" {
+		t.Fatal("done SSE sin thread_id")
+	}
 
-	rec2, body2 := getMessages(t, e.h, tok)
+	rec2, body2 := threadMessages(t, e.h, tok, tid)
 	if rec2.Code != http.StatusOK {
 		t.Fatalf("messages code = %d", rec2.Code)
 	}
@@ -203,10 +260,10 @@ func TestChatStreamGroqFailureMidwayEmitsErrorEvent(t *testing.T) {
 		t.Errorf("no debe haber done tras un corte:\n%s", body)
 	}
 
-	_, body2 := getMessages(t, e.h, tok)
-	msgs, _ := body2["messages"].([]any)
-	if len(msgs) != 0 {
-		t.Errorf("corte a medias no debe persistir, got %d mensajes", len(msgs))
+	_, body2 := getJSON(t, e.h, tok, "/ai/threads")
+	threads, _ := body2["threads"].([]any)
+	if len(threads) != 0 {
+		t.Errorf("corte a medias no debe crear hilos, got %d", len(threads))
 	}
 }
 
@@ -264,7 +321,11 @@ func proposeViaChat(t *testing.T, e *env, tok string) string {
 	if rec.Code != http.StatusOK {
 		t.Fatalf("chat/stream code = %d, body = %s", rec.Code, rec.Body.String())
 	}
-	_, body := getMessages(t, e.h, tok)
+	tid := threadIDFromDoneSSE(t, rec.Body.String())
+	if tid == "" {
+		t.Fatal("done SSE sin thread_id")
+	}
+	_, body := threadMessages(t, e.h, tok, tid)
 	msgs, _ := body["messages"].([]any)
 	if len(msgs) == 0 {
 		t.Fatal("sin mensajes tras proponer")
@@ -357,7 +418,7 @@ func TestActionConfirmInvalidPayloadIs400AndStaysProposed(t *testing.T) {
 	}
 
 	// La acción sigue proposed (se puede cancelar o reintentar).
-	_, body := getMessages(t, e.h, tok)
+	_, body := threadMessages(t, e.h, tok, onlyThreadID(t, e, tok))
 	msgs, _ := body["messages"].([]any)
 	last, _ := msgs[len(msgs)-1].(map[string]any)
 	actions, _ := last["actions"].([]any)
@@ -365,6 +426,22 @@ func TestActionConfirmInvalidPayloadIs400AndStaysProposed(t *testing.T) {
 	if action["status"] != "proposed" {
 		t.Errorf("status = %v, want proposed", action["status"])
 	}
+}
+
+// onlyThreadID devuelve el id del único hilo del usuario (helper de tests).
+func onlyThreadID(t *testing.T, e *env, tok string) string {
+	t.Helper()
+	_, body := getJSON(t, e.h, tok, "/ai/threads")
+	threads, _ := body["threads"].([]any)
+	if len(threads) != 1 {
+		t.Fatalf("se esperaba 1 hilo, got %d", len(threads))
+	}
+	th, _ := threads[0].(map[string]any)
+	id, _ := th["id"].(string)
+	if id == "" {
+		t.Fatal("hilo sin id")
+	}
+	return id
 }
 
 func TestActionCrearHabitoEndToEnd(t *testing.T) {
@@ -462,5 +539,68 @@ func TestActionErrors(t *testing.T) {
 	_, tokB := e.user(t, "action-eve@b.com")
 	if rec, _ := postAction(t, e.h, tokB, idA, "confirm"); rec.Code != http.StatusNotFound {
 		t.Errorf("cross-user code = %d, want 404", rec.Code)
+	}
+}
+
+func TestThreadsEndpointsHappyPath(t *testing.T) {
+	comp := &fakeCompleter{chatOut: "respuesta"}
+	e := newEnv(t, true, comp)
+	_, tok := e.user(t, "threads@b.com")
+
+	// Crear un hilo enviando un mensaje sin thread_id.
+	rec, body := postChat(t, e.h, tok, `{"message":"hola mundo"}`)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("chat code = %d", rec.Code)
+	}
+	tid, _ := body["thread_id"].(string)
+	if tid == "" {
+		t.Fatal("chat no devolvió thread_id")
+	}
+
+	// Listar hilos: 1, con preview y título derivado.
+	rec, body = getJSON(t, e.h, tok, "/ai/threads")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("threads code = %d", rec.Code)
+	}
+	threads, _ := body["threads"].([]any)
+	if len(threads) != 1 {
+		t.Fatalf("len threads = %d", len(threads))
+	}
+
+	// Renombrar.
+	rec, _ = patchJSON(t, e.h, tok, "/ai/threads/"+tid, `{"title":"Mi hilo"}`)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("rename code = %d", rec.Code)
+	}
+
+	// Mensajes del hilo.
+	rec, body = getJSON(t, e.h, tok, "/ai/threads/"+tid+"/messages")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("messages code = %d", rec.Code)
+	}
+
+	// Borrar.
+	rec = deleteReq(t, e.h, tok, "/ai/threads/"+tid)
+	if rec.Code != http.StatusNoContent {
+		t.Fatalf("delete code = %d", rec.Code)
+	}
+}
+
+func TestThreadOwnership404(t *testing.T) {
+	comp := &fakeCompleter{chatOut: "x"}
+	e := newEnv(t, true, comp)
+	_, ownerTok := e.user(t, "owner@b.com")
+	_, strangerTok := e.user(t, "stranger@b.com")
+
+	_, body := postChat(t, e.h, ownerTok, `{"message":"propio"}`)
+	tid, _ := body["thread_id"].(string)
+
+	rec, _ := getJSON(t, e.h, strangerTok, "/ai/threads/"+tid+"/messages")
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("ajeno messages code = %d, want 404", rec.Code)
+	}
+	rec = deleteReq(t, e.h, strangerTok, "/ai/threads/"+tid)
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("ajeno delete code = %d, want 404", rec.Code)
 	}
 }

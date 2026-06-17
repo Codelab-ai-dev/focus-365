@@ -3,6 +3,7 @@ package ai
 import (
 	"context"
 	"errors"
+	"sort"
 	"testing"
 	"time"
 
@@ -59,35 +60,130 @@ func (f fakeCtx) build(ctx context.Context, userID uuid.UUID, today time.Time) (
 	return f.out, f.err
 }
 
-// memStore es un messageStore en memoria (sin DB) por usuario. Guarda los
-// mensajes y sus acciones por separado, como la tabla ai_actions.
-type memStore struct {
-	rows    []store.AiMessage
-	actions []store.AiAction
+// memThread es un hilo en memoria (fake del store).
+type memThread struct {
+	id        uuid.UUID
+	userID    uuid.UUID
+	title     string
+	updatedAt time.Time
 }
 
-func (m *memStore) ListMessages(ctx context.Context, userID uuid.UUID) ([]store.AiMessage, error) {
-	out := make([]store.AiMessage, 0, len(m.rows))
+// memStore es un messageStore en memoria (sin DB) por usuario. Guarda los hilos,
+// los mensajes y sus acciones por separado, como las tablas reales.
+type memStore struct {
+	threads []memThread
+	rows    []store.AiMessage
+	actions []store.AiAction
+	seq     int
+}
+
+func (m *memStore) ListThreads(ctx context.Context, userID uuid.UUID) ([]store.ListThreadsRow, error) {
+	out := []store.ListThreadsRow{}
+	for _, t := range m.threads {
+		if t.userID != userID {
+			continue
+		}
+		preview := ""
+		for _, r := range m.rows {
+			if r.ThreadID == t.id {
+				preview = r.Content // el último en orden de inserción
+			}
+		}
+		out = append(out, store.ListThreadsRow{
+			ID: t.id, UserID: t.userID, Title: t.title, UpdatedAt: t.updatedAt, Preview: preview,
+		})
+	}
+	// orden por updatedAt desc
+	sort.Slice(out, func(i, j int) bool { return out[i].UpdatedAt.After(out[j].UpdatedAt) })
+	return out, nil
+}
+
+func (m *memStore) GetThread(ctx context.Context, threadID, userID uuid.UUID) (store.AiThread, error) {
+	for _, t := range m.threads {
+		if t.id == threadID && t.userID == userID {
+			return store.AiThread{ID: t.id, UserID: t.userID, Title: t.title, UpdatedAt: t.updatedAt}, nil
+		}
+	}
+	return store.AiThread{}, pgx.ErrNoRows
+}
+
+func (m *memStore) RenameThread(ctx context.Context, threadID, userID uuid.UUID, title string) (store.AiThread, error) {
+	for i := range m.threads {
+		if m.threads[i].id == threadID && m.threads[i].userID == userID {
+			m.threads[i].title = title
+			return store.AiThread{ID: threadID, UserID: userID, Title: title, UpdatedAt: m.threads[i].updatedAt}, nil
+		}
+	}
+	return store.AiThread{}, pgx.ErrNoRows
+}
+
+func (m *memStore) DeleteThread(ctx context.Context, threadID, userID uuid.UUID) (int64, error) {
+	kept := m.threads[:0]
+	var n int64
+	for _, t := range m.threads {
+		if t.id == threadID && t.userID == userID {
+			n++
+			continue
+		}
+		kept = append(kept, t)
+	}
+	m.threads = kept
+	if n > 0 {
+		// cascada
+		rows := m.rows[:0]
+		for _, r := range m.rows {
+			if r.ThreadID != threadID {
+				rows = append(rows, r)
+			}
+		}
+		m.rows = rows
+	}
+	return n, nil
+}
+
+func (m *memStore) ListThreadMessages(ctx context.Context, threadID uuid.UUID) ([]store.AiMessage, error) {
+	out := []store.AiMessage{}
 	for _, r := range m.rows {
-		if r.UserID == userID {
+		if r.ThreadID == threadID {
 			out = append(out, r)
 		}
 	}
 	return out, nil
 }
 
-func (m *memStore) CreatePair(ctx context.Context, userID uuid.UUID, userText, assistantText string) (store.AiMessage, error) {
-	user := store.AiMessage{
-		ID: uuid.New(), UserID: userID, Role: "user", Content: userText,
-		CreatedAt: time.Now().Add(time.Duration(len(m.rows)) * time.Millisecond),
+func (m *memStore) nextTime() time.Time {
+	m.seq++
+	return time.Now().Add(time.Duration(m.seq) * time.Millisecond)
+}
+
+func (m *memStore) CreateTurn(ctx context.Context, userID uuid.UUID, threadID *uuid.UUID, title, userText, assistantText string, actions []ProposedAction) (uuid.UUID, store.AiMessage, []store.AiAction, error) {
+	var tid uuid.UUID
+	if threadID == nil {
+		tid = uuid.New()
+		m.threads = append(m.threads, memThread{id: tid, userID: userID, title: title, updatedAt: m.nextTime()})
+	} else {
+		tid = *threadID
+		for i := range m.threads {
+			if m.threads[i].id == tid {
+				m.threads[i].updatedAt = m.nextTime()
+			}
+		}
 	}
+	user := store.AiMessage{ID: uuid.New(), UserID: userID, ThreadID: tid, Role: "user", Content: userText, CreatedAt: m.nextTime()}
 	m.rows = append(m.rows, user)
-	assistant := store.AiMessage{
-		ID: uuid.New(), UserID: userID, Role: "assistant", Content: assistantText,
-		CreatedAt: time.Now().Add(time.Duration(len(m.rows)) * time.Millisecond),
-	}
+	assistant := store.AiMessage{ID: uuid.New(), UserID: userID, ThreadID: tid, Role: "assistant", Content: assistantText, CreatedAt: m.nextTime()}
 	m.rows = append(m.rows, assistant)
-	return assistant, nil
+	out := make([]store.AiAction, 0, len(actions))
+	for i, a := range actions {
+		row := store.AiAction{
+			ID: uuid.New(), UserID: userID,
+			MessageID: pgtype.UUID{Bytes: assistant.ID, Valid: true},
+			Position:  int32(i), Kind: a.Kind, Payload: a.Payload, Status: "proposed",
+		}
+		m.actions = append(m.actions, row)
+		out = append(out, row)
+	}
+	return tid, assistant, out, nil
 }
 
 func TestChatSendPersistsPairAndReturnsAssistant(t *testing.T) {
@@ -96,7 +192,7 @@ func TestChatSendPersistsPairAndReturnsAssistant(t *testing.T) {
 	svc := NewChatService(fakeCtx{out: `{"snapshot":{}}`}, st, groq, groq, nil, true)
 	uid := uuid.New()
 
-	msg, err := svc.Send(context.Background(), uid, "¿cómo voy?", time.Now())
+	msg, _, err := svc.Send(context.Background(), uid, nil, "¿cómo voy?", time.Now())
 	if err != nil {
 		t.Fatalf("Send: %v", err)
 	}
@@ -120,13 +216,17 @@ func TestChatSendPersistsPairAndReturnsAssistant(t *testing.T) {
 func TestChatSendMultiTurnPassesHistory(t *testing.T) {
 	groq := &fakeChatGroq{out: "ok"}
 	uid := uuid.New()
-	st := &memStore{rows: []store.AiMessage{
-		{ID: uuid.New(), UserID: uid, Role: "user", Content: "hola", CreatedAt: time.Now()},
-		{ID: uuid.New(), UserID: uid, Role: "assistant", Content: "qué tal", CreatedAt: time.Now().Add(time.Millisecond)},
-	}}
+	tid := uuid.New()
+	st := &memStore{
+		threads: []memThread{{id: tid, userID: uid, title: "hola", updatedAt: time.Now()}},
+		rows: []store.AiMessage{
+			{ID: uuid.New(), UserID: uid, ThreadID: tid, Role: "user", Content: "hola", CreatedAt: time.Now()},
+			{ID: uuid.New(), UserID: uid, ThreadID: tid, Role: "assistant", Content: "qué tal", CreatedAt: time.Now().Add(time.Millisecond)},
+		},
+	}
 	svc := NewChatService(fakeCtx{out: "{}"}, st, groq, groq, nil, true)
 
-	if _, err := svc.Send(context.Background(), uid, "¿cómo voy?", time.Now()); err != nil {
+	if _, _, err := svc.Send(context.Background(), uid, &tid, "¿cómo voy?", time.Now()); err != nil {
 		t.Fatalf("Send: %v", err)
 	}
 	if len(groq.lastHistory) != 3 {
@@ -143,7 +243,7 @@ func TestChatSendNoKeyDegrades(t *testing.T) {
 	st := &memStore{}
 	svc := NewChatService(fakeCtx{out: "{}"}, st, groq, groq, nil, false)
 
-	_, err := svc.Send(context.Background(), uuid.New(), "hola", time.Now())
+	_, _, err := svc.Send(context.Background(), uuid.New(), nil, "hola", time.Now())
 	if !errors.Is(err, ErrUnavailable) {
 		t.Errorf("err = %v, want ErrUnavailable", err)
 	}
@@ -160,7 +260,7 @@ func TestChatSendGroqFailureDoesNotPersist(t *testing.T) {
 	st := &memStore{}
 	svc := NewChatService(fakeCtx{out: "{}"}, st, groq, groq, nil, true)
 
-	_, err := svc.Send(context.Background(), uuid.New(), "hola", time.Now())
+	_, _, err := svc.Send(context.Background(), uuid.New(), nil, "hola", time.Now())
 	if !errors.Is(err, ErrUnavailable) {
 		t.Errorf("err = %v, want ErrUnavailable", err)
 	}
@@ -171,15 +271,19 @@ func TestChatSendGroqFailureDoesNotPersist(t *testing.T) {
 
 func TestChatHistoryMapsRows(t *testing.T) {
 	uid := uuid.New()
-	st := &memStore{rows: []store.AiMessage{
-		{ID: uuid.New(), UserID: uid, Role: "user", Content: "hola", CreatedAt: time.Now()},
-	}}
+	tid := uuid.New()
+	st := &memStore{
+		threads: []memThread{{id: tid, userID: uid, title: "hola", updatedAt: time.Now()}},
+		rows: []store.AiMessage{
+			{ID: uuid.New(), UserID: uid, ThreadID: tid, Role: "user", Content: "hola", CreatedAt: time.Now()},
+		},
+	}
 	f := &fakeChatGroq{}
 	svc := NewChatService(fakeCtx{}, st, f, f, nil, true)
 
-	msgs, err := svc.History(context.Background(), uid)
+	msgs, err := svc.HistoryByThread(context.Background(), uid, tid)
 	if err != nil {
-		t.Fatalf("History: %v", err)
+		t.Fatalf("HistoryByThread: %v", err)
 	}
 	if len(msgs) != 1 || msgs[0].Role != "user" || msgs[0].Content != "hola" {
 		t.Errorf("history = %+v", msgs)
@@ -193,7 +297,7 @@ func TestChatSendStreamEmitsDeltasAndPersists(t *testing.T) {
 	uid := uuid.New()
 
 	var deltas []string
-	msg, err := svc.SendStream(context.Background(), uid, "¿cómo voy?", time.Now(),
+	msg, _, err := svc.SendStream(context.Background(), uid, nil, "¿cómo voy?", time.Now(),
 		func(d string) { deltas = append(deltas, d) })
 	if err != nil {
 		t.Fatalf("SendStream: %v", err)
@@ -214,7 +318,7 @@ func TestChatSendStreamFailureDoesNotPersist(t *testing.T) {
 	st := &memStore{}
 	svc := NewChatService(fakeCtx{out: "{}"}, st, groq, groq, nil, true)
 
-	_, err := svc.SendStream(context.Background(), uuid.New(), "hola", time.Now(), func(string) {})
+	_, _, err := svc.SendStream(context.Background(), uuid.New(), nil, "hola", time.Now(), func(string) {})
 	if !errors.Is(err, ErrUnavailable) {
 		t.Errorf("err = %v, want ErrUnavailable", err)
 	}
@@ -228,37 +332,13 @@ func TestChatSendStreamNoKeyDegrades(t *testing.T) {
 	st := &memStore{}
 	svc := NewChatService(fakeCtx{out: "{}"}, st, groq, groq, nil, false)
 
-	_, err := svc.SendStream(context.Background(), uuid.New(), "hola", time.Now(), func(string) {})
+	_, _, err := svc.SendStream(context.Background(), uuid.New(), nil, "hola", time.Now(), func(string) {})
 	if !errors.Is(err, ErrUnavailable) {
 		t.Errorf("err = %v, want ErrUnavailable", err)
 	}
 	if groq.called != 0 {
 		t.Error("sin clave no debe llamar a Groq")
 	}
-}
-
-func (m *memStore) CreatePairWithActions(ctx context.Context, userID uuid.UUID, userText, assistantText string, actions []ProposedAction) (store.AiMessage, []store.AiAction, error) {
-	user := store.AiMessage{
-		ID: uuid.New(), UserID: userID, Role: "user", Content: userText,
-		CreatedAt: time.Now().Add(time.Duration(len(m.rows)) * time.Millisecond),
-	}
-	m.rows = append(m.rows, user)
-	assistant := store.AiMessage{
-		ID: uuid.New(), UserID: userID, Role: "assistant", Content: assistantText,
-		CreatedAt: time.Now().Add(time.Duration(len(m.rows)) * time.Millisecond),
-	}
-	m.rows = append(m.rows, assistant)
-	out := make([]store.AiAction, 0, len(actions))
-	for i, a := range actions {
-		act := store.AiAction{
-			ID: uuid.New(), MessageID: pgtype.UUID{Bytes: assistant.ID, Valid: true}, UserID: userID,
-			Position: int32(i), Kind: a.Kind, Payload: a.Payload, Status: "proposed",
-			CreatedAt: time.Now(),
-		}
-		m.actions = append(m.actions, act)
-		out = append(out, act)
-	}
-	return assistant, out, nil
 }
 
 func (m *memStore) ListActionsByMessages(ctx context.Context, messageIDs []uuid.UUID) ([]store.AiAction, error) {
@@ -303,7 +383,7 @@ func TestChatSendStreamToolCallPersistsProposal(t *testing.T) {
 	svc := NewChatService(fakeCtx{out: "{}"}, st, groq, groq, nil, true)
 	uid := uuid.New()
 
-	msg, err := svc.SendStream(context.Background(), uid, "registra mi check-in", time.Now(), func(string) {})
+	msg, _, err := svc.SendStream(context.Background(), uid, nil, "registra mi check-in", time.Now(), func(string) {})
 	if err != nil {
 		t.Fatalf("SendStream: %v", err)
 	}
@@ -332,7 +412,7 @@ func TestChatSendStreamUnknownToolDegrades(t *testing.T) {
 	st := &memStore{}
 	svc := NewChatService(fakeCtx{out: "{}"}, st, groq, groq, nil, true)
 
-	_, err := svc.SendStream(context.Background(), uuid.New(), "x", time.Now(), func(string) {})
+	_, _, err := svc.SendStream(context.Background(), uuid.New(), nil, "x", time.Now(), func(string) {})
 	if !errors.Is(err, ErrUnavailable) {
 		t.Errorf("err = %v, want ErrUnavailable", err)
 	}
@@ -346,12 +426,13 @@ func TestChatHistoryIncludesAction(t *testing.T) {
 	st := &memStore{}
 	svc := NewChatService(fakeCtx{out: "{}"}, st, groq, groq, nil, true)
 	uid := uuid.New()
-	if _, err := svc.SendStream(context.Background(), uid, "marca meditar", time.Now(), func(string) {}); err != nil {
+	_, tid, err := svc.SendStream(context.Background(), uid, nil, "marca meditar", time.Now(), func(string) {})
+	if err != nil {
 		t.Fatalf("SendStream: %v", err)
 	}
-	msgs, err := svc.History(context.Background(), uid)
+	msgs, err := svc.HistoryByThread(context.Background(), uid, tid)
 	if err != nil {
-		t.Fatalf("History: %v", err)
+		t.Fatalf("HistoryByThread: %v", err)
 	}
 	last := msgs[len(msgs)-1]
 	if len(last.Actions) != 1 || last.Actions[0].Kind != "habito" || last.ID == "" {
@@ -361,7 +442,7 @@ func TestChatHistoryIncludesAction(t *testing.T) {
 
 func proposeCheckin(t *testing.T, svc *ChatService, uid uuid.UUID) *Message {
 	t.Helper()
-	msg, err := svc.SendStream(context.Background(), uid, "registra mi check-in", time.Now(), func(string) {})
+	msg, _, err := svc.SendStream(context.Background(), uid, nil, "registra mi check-in", time.Now(), func(string) {})
 	if err != nil {
 		t.Fatalf("SendStream: %v", err)
 	}
@@ -428,7 +509,7 @@ func TestChatSendStreamMultipleActions(t *testing.T) {
 	}}
 	st := &memStore{}
 	svc := NewChatService(fakeCtx{out: "{}"}, st, groq, groq, nil, true)
-	msg, err := svc.SendStream(context.Background(), uuid.New(), "check-in y meditación", time.Now(), func(string) {})
+	msg, _, err := svc.SendStream(context.Background(), uuid.New(), nil, "check-in y meditación", time.Now(), func(string) {})
 	if err != nil {
 		t.Fatalf("SendStream: %v", err)
 	}
@@ -451,7 +532,7 @@ func TestChatSendStreamTooManyActionsDegrades(t *testing.T) {
 	st := &memStore{}
 	groq := &fakeChatGroq{toolCalls: calls}
 	svc := NewChatService(fakeCtx{out: "{}"}, st, groq, groq, nil, true)
-	if _, err := svc.SendStream(context.Background(), uuid.New(), "x", time.Now(), func(string) {}); !errors.Is(err, ErrUnavailable) {
+	if _, _, err := svc.SendStream(context.Background(), uuid.New(), nil, "x", time.Now(), func(string) {}); !errors.Is(err, ErrUnavailable) {
 		t.Errorf("err = %v, want ErrUnavailable", err)
 	}
 	if len(st.rows) != 0 {
@@ -466,7 +547,7 @@ func TestChatSendStreamOneInvalidActionDiscardsAll(t *testing.T) {
 	}}
 	st := &memStore{}
 	svc := NewChatService(fakeCtx{out: "{}"}, st, groq, groq, nil, true)
-	if _, err := svc.SendStream(context.Background(), uuid.New(), "x", time.Now(), func(string) {}); !errors.Is(err, ErrUnavailable) {
+	if _, _, err := svc.SendStream(context.Background(), uuid.New(), nil, "x", time.Now(), func(string) {}); !errors.Is(err, ErrUnavailable) {
 		t.Errorf("err = %v, want ErrUnavailable", err)
 	}
 	if len(st.rows) != 0 {
@@ -479,7 +560,7 @@ func TestConfirmActionOnPlainMessageIsNotFound(t *testing.T) {
 	st := &memStore{}
 	svc := NewChatService(fakeCtx{out: "{}"}, st, groq, groq, newTestExecutor(&fakeCheckinSvc{}, &fakeFinanceSvc{}, &fakeHabitsSvc{}, &fakeGoalsSvc{}, &fakeTrainingSvc{}), true)
 	uid := uuid.New()
-	msg, err := svc.SendStream(context.Background(), uid, "hola", time.Now(), func(string) {})
+	msg, _, err := svc.SendStream(context.Background(), uid, nil, "hola", time.Now(), func(string) {})
 	if err != nil {
 		t.Fatalf("SendStream: %v", err)
 	}
@@ -560,5 +641,66 @@ func TestUndoActionErrorDeDBNoTransiciona(t *testing.T) {
 	c.err = nil
 	if got, err := svc.UndoAction(context.Background(), uid, actionID); err != nil || got.Status != "undone" {
 		t.Errorf("reintento undo: got %+v err %v", got, err)
+	}
+}
+
+func TestSendCreatesThreadLazilyWithTitle(t *testing.T) {
+	groq := &fakeChatGroq{out: "ok"}
+	st := &memStore{}
+	svc := NewChatService(fakeCtx{out: `{}`}, st, groq, groq, nil, true)
+	uid := uuid.New()
+
+	_, tid, err := svc.Send(context.Background(), uid, nil, "¿cuánto gasté este mes?", time.Now())
+	if err != nil {
+		t.Fatalf("Send: %v", err)
+	}
+	if tid == uuid.Nil {
+		t.Fatal("no devolvió thread id")
+	}
+	threads, _ := svc.Threads(context.Background(), uid)
+	if len(threads) != 1 || threads[0].Title != "¿cuánto gasté este mes?" {
+		t.Fatalf("threads = %+v", threads)
+	}
+}
+
+func TestSendToExistingThreadKeepsIt(t *testing.T) {
+	groq := &fakeChatGroq{out: "ok"}
+	st := &memStore{}
+	svc := NewChatService(fakeCtx{out: `{}`}, st, groq, groq, nil, true)
+	uid := uuid.New()
+	_, tid, _ := svc.Send(context.Background(), uid, nil, "primero", time.Now())
+	_, tid2, err := svc.Send(context.Background(), uid, &tid, "segundo", time.Now())
+	if err != nil || tid2 != tid {
+		t.Fatalf("tid2=%v tid=%v err=%v", tid2, tid, err)
+	}
+	threads, _ := svc.Threads(context.Background(), uid)
+	if len(threads) != 1 {
+		t.Fatalf("se crearon %d hilos, want 1", len(threads))
+	}
+}
+
+func TestSendToForeignThreadIs404(t *testing.T) {
+	groq := &fakeChatGroq{out: "ok"}
+	st := &memStore{}
+	svc := NewChatService(fakeCtx{out: `{}`}, st, groq, groq, nil, true)
+	owner, stranger := uuid.New(), uuid.New()
+	_, tid, _ := svc.Send(context.Background(), owner, nil, "mío", time.Now())
+	_, _, err := svc.Send(context.Background(), stranger, &tid, "intruso", time.Now())
+	if !errors.Is(err, ErrThreadNotFound) {
+		t.Fatalf("err = %v, want ErrThreadNotFound", err)
+	}
+}
+
+func TestDeleteThreadRemovesMessages(t *testing.T) {
+	groq := &fakeChatGroq{out: "ok"}
+	st := &memStore{}
+	svc := NewChatService(fakeCtx{out: `{}`}, st, groq, groq, nil, true)
+	uid := uuid.New()
+	_, tid, _ := svc.Send(context.Background(), uid, nil, "hola", time.Now())
+	if err := svc.DeleteThread(context.Background(), uid, tid); err != nil {
+		t.Fatalf("DeleteThread: %v", err)
+	}
+	if err := svc.DeleteThread(context.Background(), uid, tid); !errors.Is(err, ErrThreadNotFound) {
+		t.Fatalf("segundo delete = %v, want ErrThreadNotFound", err)
 	}
 }

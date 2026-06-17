@@ -39,6 +39,7 @@ func Routes(svc *Service, chat *ChatService, imp *ImportService) http.Handler {
 	r.Post("/actions/{id}/undo", handleActionUndo(chat))
 	r.Post("/import", handleImport(imp))
 	r.Get("/import/pending", handleImportPending(imp))
+	r.Get("/search", handleSearch(chat))
 	return r
 }
 
@@ -492,5 +493,26 @@ func handleActionUndo(chat *ChatService) http.HandlerFunc {
 		resolveAction(w, r, func(ctx context.Context, userID, id uuid.UUID) (*ActionView, error) {
 			return chat.UndoAction(ctx, userID, id)
 		})
+	}
+}
+
+func handleSearch(chat *ChatService) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		userID, ok := auth.UserIDFromContext(r.Context())
+		if !ok {
+			httpx.WriteErr(w, http.StatusUnauthorized, "no autorizado")
+			return
+		}
+		q := strings.TrimSpace(r.URL.Query().Get("q"))
+		if utf8.RuneCountInString(q) < minSearchLen {
+			httpx.WriteErr(w, http.StatusBadRequest, "el término de búsqueda es demasiado corto")
+			return
+		}
+		res, err := chat.Search(r.Context(), userID, q)
+		if err != nil {
+			httpx.WriteErr(w, http.StatusInternalServerError, "error interno")
+			return
+		}
+		httpx.WriteJSON(w, http.StatusOK, res)
 	}
 }

@@ -37,7 +37,7 @@ export function Modal({
       aria-modal="true"
       aria-label={title}
       onClick={onClose}
-      className="fixed inset-0 z-50 flex items-end justify-center bg-ink/40 p-4 sm:items-center"
+      className="fixed inset-0 z-50 flex items-end justify-center bg-ink/50 p-4 backdrop-blur-sm sm:items-center"
     >
       <div
         onClick={(e) => e.stopPropagation()}

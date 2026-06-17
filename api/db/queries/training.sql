@@ -16,8 +16,8 @@ VALUES ($1, $2, $3, $4)
 RETURNING *;
 
 -- name: CreateWorkoutSet :one
-INSERT INTO workout_sets (workout_id, exercise_id, position, reps, weight_grams)
-VALUES ($1, $2, $3, $4, $5)
+INSERT INTO workout_sets (workout_id, exercise_id, position, reps, weight_grams, note)
+VALUES ($1, $2, $3, $4, $5, $6)
 RETURNING *;
 
 -- name: ListWorkouts :many
@@ -32,14 +32,14 @@ SELECT * FROM workouts
 WHERE id = $1 AND user_id = $2;
 
 -- name: ListSetsByWorkout :many
-SELECT ws.position, ws.reps, ws.weight_grams, e.name AS exercise_name
+SELECT ws.position, ws.reps, ws.weight_grams, ws.note, e.name AS exercise_name
 FROM workout_sets ws
 JOIN exercises e ON e.id = ws.exercise_id
 WHERE ws.workout_id = $1
 ORDER BY ws.position ASC;
 
 -- name: ListSetsByWorkoutIDs :many
-SELECT ws.workout_id, ws.position, ws.reps, ws.weight_grams, e.name AS exercise_name
+SELECT ws.workout_id, ws.position, ws.reps, ws.weight_grams, ws.note, e.name AS exercise_name
 FROM workout_sets ws
 JOIN exercises e ON e.id = ws.exercise_id
 WHERE ws.workout_id = ANY(sqlc.arg('workout_ids')::uuid[])

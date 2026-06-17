@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, afterEach } from "vitest";
-import { getInsight, getThreads, getThreadMessages, renameThread, deleteThread, sendMessageStream, confirmAction, cancelAction, undoAction, importFile, getPendingUploads, type Insight, type Message, type Action } from "./ai";
+import { getInsight, getThreads, getThreadMessages, renameThread, deleteThread, sendMessageStream, confirmAction, cancelAction, undoAction, importFile, getPendingUploads, type Insight, type Action } from "./ai";
 import { ApiError } from "./api";
 
 function okJson(data: unknown) {
@@ -248,7 +248,7 @@ describe("getThreads", () => {
   afterEach(() => vi.restoreAllMocks());
 
   it("getThreads pide la lista y devuelve threads", async () => {
-    const fetchMock = vi.fn(() =>
+    const fetchMock = vi.fn((_url: string, _opts?: RequestInit) =>
       okJson({ threads: [{ id: "t1", title: "A", preview: "hola", updated_at: "2026-06-14T00:00:00Z" }] })
     );
     vi.stubGlobal("fetch", fetchMock);
@@ -263,7 +263,7 @@ describe("getThreadMessages", () => {
   afterEach(() => vi.restoreAllMocks());
 
   it("getThreadMessages pega al endpoint del hilo", async () => {
-    const fetchMock = vi.fn(() => okJson({ messages: [] }));
+    const fetchMock = vi.fn((_url: string, _opts?: RequestInit) => okJson({ messages: [] }));
     vi.stubGlobal("fetch", fetchMock);
     await getThreadMessages("t1");
     expect(String(fetchMock.mock.calls[0][0])).toContain("/api/v1/ai/threads/t1/messages");
@@ -274,7 +274,9 @@ describe("renameThread", () => {
   afterEach(() => vi.restoreAllMocks());
 
   it("renameThread hace PATCH con el título", async () => {
-    const fetchMock = vi.fn(() => okJson({ thread: { id: "t1", title: "Nuevo", preview: "", updated_at: "" } }));
+    const fetchMock = vi.fn((_url: string, _opts?: RequestInit) =>
+      okJson({ thread: { id: "t1", title: "Nuevo", preview: "", updated_at: "" } })
+    );
     vi.stubGlobal("fetch", fetchMock);
     const th = await renameThread("t1", "Nuevo");
     expect(th.title).toBe("Nuevo");
@@ -288,7 +290,7 @@ describe("deleteThread", () => {
   afterEach(() => vi.restoreAllMocks());
 
   it("deleteThread hace DELETE", async () => {
-    const fetchMock = vi.fn(() => new Response(null, { status: 204 }));
+    const fetchMock = vi.fn((_url: string, _opts?: RequestInit) => new Response(null, { status: 204 }));
     vi.stubGlobal("fetch", fetchMock);
     await deleteThread("t1");
     const opts = fetchMock.mock.calls[0][1] as RequestInit;

@@ -16,8 +16,10 @@ import { Route as FinanzasRouteImport } from './routes/finanzas'
 import { Route as EntrenamientoRouteImport } from './routes/entrenamiento'
 import { Route as DisciplinaRouteImport } from './routes/disciplina'
 import { Route as CheckInRouteImport } from './routes/check-in'
-import { Route as AsistenteRouteImport } from './routes/asistente'
 import { Route as IndexRouteImport } from './routes/index'
+import { Route as AsistenteIndexRouteImport } from './routes/asistente.index'
+import { Route as AsistenteNewRouteImport } from './routes/asistente.new'
+import { Route as AsistenteThreadIdRouteImport } from './routes/asistente.$threadId'
 
 const RegisterRoute = RegisterRouteImport.update({
   id: '/register',
@@ -54,20 +56,29 @@ const CheckInRoute = CheckInRouteImport.update({
   path: '/check-in',
   getParentRoute: () => rootRouteImport,
 } as any)
-const AsistenteRoute = AsistenteRouteImport.update({
-  id: '/asistente',
-  path: '/asistente',
-  getParentRoute: () => rootRouteImport,
-} as any)
 const IndexRoute = IndexRouteImport.update({
   id: '/',
   path: '/',
   getParentRoute: () => rootRouteImport,
 } as any)
+const AsistenteIndexRoute = AsistenteIndexRouteImport.update({
+  id: '/asistente/',
+  path: '/asistente/',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const AsistenteNewRoute = AsistenteNewRouteImport.update({
+  id: '/asistente/new',
+  path: '/asistente/new',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const AsistenteThreadIdRoute = AsistenteThreadIdRouteImport.update({
+  id: '/asistente/$threadId',
+  path: '/asistente/$threadId',
+  getParentRoute: () => rootRouteImport,
+} as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
-  '/asistente': typeof AsistenteRoute
   '/check-in': typeof CheckInRoute
   '/disciplina': typeof DisciplinaRoute
   '/entrenamiento': typeof EntrenamientoRoute
@@ -75,10 +86,12 @@ export interface FileRoutesByFullPath {
   '/login': typeof LoginRoute
   '/metas': typeof MetasRoute
   '/register': typeof RegisterRoute
+  '/asistente/$threadId': typeof AsistenteThreadIdRoute
+  '/asistente/new': typeof AsistenteNewRoute
+  '/asistente/': typeof AsistenteIndexRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
-  '/asistente': typeof AsistenteRoute
   '/check-in': typeof CheckInRoute
   '/disciplina': typeof DisciplinaRoute
   '/entrenamiento': typeof EntrenamientoRoute
@@ -86,11 +99,13 @@ export interface FileRoutesByTo {
   '/login': typeof LoginRoute
   '/metas': typeof MetasRoute
   '/register': typeof RegisterRoute
+  '/asistente/$threadId': typeof AsistenteThreadIdRoute
+  '/asistente/new': typeof AsistenteNewRoute
+  '/asistente': typeof AsistenteIndexRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
-  '/asistente': typeof AsistenteRoute
   '/check-in': typeof CheckInRoute
   '/disciplina': typeof DisciplinaRoute
   '/entrenamiento': typeof EntrenamientoRoute
@@ -98,12 +113,14 @@ export interface FileRoutesById {
   '/login': typeof LoginRoute
   '/metas': typeof MetasRoute
   '/register': typeof RegisterRoute
+  '/asistente/$threadId': typeof AsistenteThreadIdRoute
+  '/asistente/new': typeof AsistenteNewRoute
+  '/asistente/': typeof AsistenteIndexRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
   fullPaths:
     | '/'
-    | '/asistente'
     | '/check-in'
     | '/disciplina'
     | '/entrenamiento'
@@ -111,10 +128,12 @@ export interface FileRouteTypes {
     | '/login'
     | '/metas'
     | '/register'
+    | '/asistente/$threadId'
+    | '/asistente/new'
+    | '/asistente/'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
-    | '/asistente'
     | '/check-in'
     | '/disciplina'
     | '/entrenamiento'
@@ -122,10 +141,12 @@ export interface FileRouteTypes {
     | '/login'
     | '/metas'
     | '/register'
+    | '/asistente/$threadId'
+    | '/asistente/new'
+    | '/asistente'
   id:
     | '__root__'
     | '/'
-    | '/asistente'
     | '/check-in'
     | '/disciplina'
     | '/entrenamiento'
@@ -133,11 +154,13 @@ export interface FileRouteTypes {
     | '/login'
     | '/metas'
     | '/register'
+    | '/asistente/$threadId'
+    | '/asistente/new'
+    | '/asistente/'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
-  AsistenteRoute: typeof AsistenteRoute
   CheckInRoute: typeof CheckInRoute
   DisciplinaRoute: typeof DisciplinaRoute
   EntrenamientoRoute: typeof EntrenamientoRoute
@@ -145,6 +168,9 @@ export interface RootRouteChildren {
   LoginRoute: typeof LoginRoute
   MetasRoute: typeof MetasRoute
   RegisterRoute: typeof RegisterRoute
+  AsistenteThreadIdRoute: typeof AsistenteThreadIdRoute
+  AsistenteNewRoute: typeof AsistenteNewRoute
+  AsistenteIndexRoute: typeof AsistenteIndexRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -198,13 +224,6 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof CheckInRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/asistente': {
-      id: '/asistente'
-      path: '/asistente'
-      fullPath: '/asistente'
-      preLoaderRoute: typeof AsistenteRouteImport
-      parentRoute: typeof rootRouteImport
-    }
     '/': {
       id: '/'
       path: '/'
@@ -212,12 +231,32 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof IndexRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/asistente/': {
+      id: '/asistente/'
+      path: '/asistente'
+      fullPath: '/asistente/'
+      preLoaderRoute: typeof AsistenteIndexRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/asistente/new': {
+      id: '/asistente/new'
+      path: '/asistente/new'
+      fullPath: '/asistente/new'
+      preLoaderRoute: typeof AsistenteNewRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/asistente/$threadId': {
+      id: '/asistente/$threadId'
+      path: '/asistente/$threadId'
+      fullPath: '/asistente/$threadId'
+      preLoaderRoute: typeof AsistenteThreadIdRouteImport
+      parentRoute: typeof rootRouteImport
+    }
   }
 }
 
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
-  AsistenteRoute: AsistenteRoute,
   CheckInRoute: CheckInRoute,
   DisciplinaRoute: DisciplinaRoute,
   EntrenamientoRoute: EntrenamientoRoute,
@@ -225,6 +264,9 @@ const rootRouteChildren: RootRouteChildren = {
   LoginRoute: LoginRoute,
   MetasRoute: MetasRoute,
   RegisterRoute: RegisterRoute,
+  AsistenteThreadIdRoute: AsistenteThreadIdRoute,
+  AsistenteNewRoute: AsistenteNewRoute,
+  AsistenteIndexRoute: AsistenteIndexRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)

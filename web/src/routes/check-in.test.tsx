@@ -374,3 +374,68 @@ describe("CheckInPage", () => {
     expect(screen.getByText("Á4 · E5")).toBeInTheDocument();
   });
 });
+
+// fetchMock con historial: la lista /checkins devuelve un día con contenido, y
+// /commitments/due devuelve un compromiso de ese día.
+function fetchMockWithHistory() {
+  const day = {
+    id: "h1", date: "2026-06-16", mood: 7, energy: 6,
+    espiritual: "oré 10 min", emocional: "", fisica: "", financiera: "",
+    win: "cerré el trato", avoided: "",
+    created_at: "", updated_at: "",
+  };
+  return vi.fn((url: string, opts?: RequestInit) => {
+    if (url.includes("/commitments/due?date=2026-06-16")) {
+      return Promise.resolve(
+        new Response(
+          JSON.stringify({ commitments: [{ id: "k1", target_date: "2026-06-16", text: "leer", done: true }] }),
+          { status: 200 }
+        )
+      );
+    }
+    if (url.includes("/commitments/due")) {
+      return Promise.resolve(
+        new Response(JSON.stringify({ commitments: [] }), { status: 200 })
+      );
+    }
+    if (url.includes("/today")) {
+      return Promise.resolve(new Response("null", { status: 200 }));
+    }
+    if (url.includes("/checkins?") || url.endsWith("/checkins")) {
+      return Promise.resolve(new Response(JSON.stringify([day]), { status: 200 }));
+    }
+    if (opts?.method === "POST") {
+      return Promise.resolve(new Response(JSON.stringify(day), { status: 200 }));
+    }
+    return Promise.resolve(new Response("[]", { status: 200 }));
+  });
+}
+
+describe("CheckInPage — detalle del día", () => {
+  afterEach(() => vi.restoreAllMocks());
+
+  it("toca una fila del historial y abre el modal con el detalle", async () => {
+    vi.stubGlobal("fetch", fetchMockWithHistory());
+    renderPage();
+    const row = await screen.findByLabelText("Ver detalle del 2026-06-16");
+    await userEvent.click(row);
+    // dimensión con texto visible; dimensión vacía oculta
+    expect(await screen.findByText(/oré 10 min/)).toBeInTheDocument();
+    expect(screen.getByText(/cerré el trato/)).toBeInTheDocument();
+    expect(screen.queryByText("Emocional:")).not.toBeInTheDocument();
+    // compromiso del día desde getDue
+    expect(screen.getByText("leer")).toBeInTheDocument();
+  });
+
+  it("cierra el modal con ✕", async () => {
+    vi.stubGlobal("fetch", fetchMockWithHistory());
+    renderPage();
+    const row = await screen.findByLabelText("Ver detalle del 2026-06-16");
+    await userEvent.click(row);
+    await screen.findByText(/oré 10 min/);
+    await userEvent.click(screen.getByLabelText("Cerrar"));
+    await waitFor(() =>
+      expect(screen.queryByText(/oré 10 min/)).not.toBeInTheDocument()
+    );
+  });
+});

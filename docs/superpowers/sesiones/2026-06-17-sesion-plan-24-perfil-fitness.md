@@ -1,7 +1,7 @@
 # Bitácora de sesión — Rebanada 24: perfil de fitness (entrenamiento slice A)
 
 **Fecha:** 2026-06-17
-**Estado al cierre:** Mergeada a `main` y pusheada. **Smoke de producción pendiente del deploy manual.**
+**Estado al cierre:** Completada, mergeada a `main` y **verificada en producción** (smoke 5/5 tras deploy manual).
 **Rama:** `plan-24-perfil-fitness` (mezclada `--no-ff` y borrada).
 
 ## Contexto
@@ -67,9 +67,8 @@ usuario (upsert); todos los campos opcionales.
 - Backend: build + vet limpios; `go test -p 1 ./...` verde (tests nuevos de store
   y handler del perfil).
 - Frontend: **151/151** + build OK.
-- **Smoke producción:** pendiente del deploy manual. `scripts/smoke-r24.sh`
-  cubre: GET sin perfil → null, PUT válido → 200, GET persistido, weekly_days=8 →
-  400, sex inválido → 400.
+- **Smoke producción 5/5 OK** (tras deploy manual): GET sin perfil → null, PUT
+  válido → 200, GET persistido, weekly_days=8 → 400, sex inválido → 400.
 
 ## Backlog restante
 

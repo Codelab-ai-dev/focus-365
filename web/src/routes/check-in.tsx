@@ -10,6 +10,7 @@ import { Input } from "@/ui/Input";
 import { Button } from "@/ui/Button";
 import { Chip } from "@/ui/Chip";
 import { Reveal, RevealItem } from "@/ui/Reveal";
+import { Modal } from "@/ui/Modal";
 
 export const Route = createFileRoute("/check-in")({ component: CheckInPage });
 
@@ -60,6 +61,8 @@ function CheckInPage() {
     queryFn: () => getDue(tomorrow),
     enabled: !!user,
   });
+
+  const [selected, setSelected] = useState<CheckIn | null>(null);
 
   const [mood, setMood] = useState(5);
   const [energy, setEnergy] = useState(5);
@@ -300,12 +303,19 @@ function CheckInPage() {
             <Reveal className="mt-3 space-y-2">
               {historyQuery.data.map((ci: CheckIn) => (
                 <RevealItem key={ci.id}>
-                  <Card className="flex items-center justify-between px-4 py-2 text-sm">
-                    <span className="text-muted">{ci.date}</span>
-                    <span>
-                      Á{ci.mood} · E{ci.energy}
-                    </span>
-                  </Card>
+                  <button
+                    type="button"
+                    aria-label={`Ver detalle del ${ci.date}`}
+                    onClick={() => setSelected(ci)}
+                    className="w-full text-left"
+                  >
+                    <Card interactive className="flex items-center justify-between px-4 py-2 text-sm">
+                      <span className="text-muted">{ci.date}</span>
+                      <span>
+                        Á{ci.mood} · E{ci.energy}
+                      </span>
+                    </Card>
+                  </button>
                 </RevealItem>
               ))}
             </Reveal>
@@ -313,6 +323,8 @@ function CheckInPage() {
             <p className="mt-3 text-sm text-muted">Aún no hay check-ins.</p>
           )}
         </section>
+
+        <DayDetailModal checkin={selected} onClose={() => setSelected(null)} />
       </div>
     </PageTransition>
   );
@@ -345,4 +357,98 @@ function Slider({
       />
     </label>
   );
+}
+
+function DayDetailModal({
+  checkin,
+  onClose,
+}: {
+  checkin: CheckIn | null;
+  onClose: () => void;
+}) {
+  // Los compromisos de ese día: se piden solo cuando hay un día seleccionado.
+  const dueQuery = useQuery({
+    queryKey: ["commitments", "due", checkin?.date],
+    queryFn: () => getDue(checkin!.date),
+    enabled: !!checkin,
+  });
+  const commitments = dueQuery.data ?? [];
+  const done = commitments.filter((c) => c.done).length;
+
+  return (
+    <Modal
+      open={checkin !== null}
+      onClose={onClose}
+      title={checkin ? formatDay(checkin.date) : ""}
+    >
+      {checkin && (
+        <div className="space-y-4 text-sm">
+          <p className="font-bold">
+            Ánimo {checkin.mood} · Energía {checkin.energy}
+          </p>
+
+          {DIMENSIONS.some((d) => checkin[d.key]) && (
+            <div className="space-y-2">
+              {DIMENSIONS.filter((d) => checkin[d.key]).map((d) => (
+                <p key={d.key} className="flex items-start gap-2">
+                  <Chip variant={d.variant}>{d.short}</Chip>
+                  <span>
+                    <span className="font-bold">{d.label}:</span> {checkin[d.key]}
+                  </span>
+                </p>
+              ))}
+            </div>
+          )}
+
+          {checkin.win && (
+            <p>
+              🏆 <span className="font-bold">Win:</span> {checkin.win}
+            </p>
+          )}
+          {checkin.avoided && (
+            <p>
+              🚫 <span className="font-bold">Evité:</span> {checkin.avoided}
+            </p>
+          )}
+
+          <div className="space-y-2 border-t-2 border-ink pt-3">
+            <div className="flex items-center justify-between">
+              <span className="font-display text-xs font-bold uppercase tracking-[0.12em] text-muted">
+                📋 Compromisos
+              </span>
+              {commitments.length > 0 && (
+                <span className="font-display text-xs font-bold text-accent">
+                  {done}/{commitments.length} ✓
+                </span>
+              )}
+            </div>
+            {commitments.length === 0 ? (
+              <p className="text-muted">Sin compromisos ese día.</p>
+            ) : (
+              commitments.map((c: Commitment) => (
+                <p key={c.id} className="flex items-center gap-2">
+                  <span>{c.done ? "✓" : "✗"}</span>
+                  <span className={c.done ? "line-through text-muted" : ""}>
+                    {c.text}
+                  </span>
+                </p>
+              ))
+            )}
+          </div>
+        </div>
+      )}
+    </Modal>
+  );
+}
+
+// formatDay muestra "lun 16 jun" parseando YYYY-MM-DD como fecha LOCAL (evita el
+// corrimiento de día de new Date("YYYY-MM-DD"), que interpreta UTC).
+function formatDay(iso: string): string {
+  const [y, m, d] = iso.split("-").map(Number);
+  const date = new Date(y, m - 1, d);
+  return date.toLocaleDateString("es", {
+    weekday: "short",
+    day: "numeric",
+    month: "short",
+  });
 }

@@ -1,7 +1,7 @@
 # Bitácora de sesión — Rebanada 26: notas por serie (entrenamiento slice C1)
 
 **Fecha:** 2026-06-17
-**Estado al cierre:** Mergeada a `main` y pusheada. **Smoke de producción pendiente del deploy manual.**
+**Estado al cierre:** Completada, mergeada a `main` y **verificada en producción** (smoke 3/3 tras deploy manual).
 **Rama:** `plan-26-notas-serie` (mezclada `--no-ff` y borrada).
 
 ## Contexto
@@ -53,9 +53,8 @@ notas en su contexto, así sus sugerencias ya las consideran.
 
 - Backend: build + vet limpios; `go test -p 1 ./...` verde.
 - Frontend: **156/156** + build OK.
-- **Smoke producción:** pendiente del deploy manual. `scripts/smoke-r26.sh`
-  cubre: POST workout con nota por serie → 201, GET trae la nota, nota larga →
-  400.
+- **Smoke producción 3/3 OK** (tras deploy manual): POST workout con nota por
+  serie → 201, GET trae la nota, nota larga → 400.
 
 ## Backlog restante
 

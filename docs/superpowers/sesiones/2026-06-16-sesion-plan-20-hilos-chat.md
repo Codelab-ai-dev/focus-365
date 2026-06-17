@@ -1,7 +1,7 @@
 # Bitácora de sesión — Rebanada 20: hilos en el asistente
 
 **Fecha:** 2026-06-16
-**Estado al cierre:** Mergeada a `main` y pusheada. **Smoke de producción pendiente del deploy manual** (auto-deploy no disparó).
+**Estado al cierre:** Completada, mergeada a `main` y **verificada en producción** (smoke 6/6 tras deploy manual; auto-deploy no disparó).
 **Rama:** `plan-20-hilos-chat` (mezclada `--no-ff` y borrada). **Merge:** en `main` tras `ba6f405`.
 
 ## Qué se entregó
@@ -75,10 +75,9 @@ lib frontend · `d7f520b` rutas frontend · merge · `1e8a9a0` script de smoke.
 - Backend: build + vet limpios; `go test -p 1 ./...` todos los paquetes verde
   (incl. `internal/ai` con 144 tests).
 - Frontend: **126/126** + build OK (árbol de rutas regenerado).
-- **Smoke producción:** pendiente del deploy manual. `scripts/smoke-r20.sh`
-  cubre: crear hilo lazy (devuelve `thread_id`), listar (1 hilo), 2.º envío al
-  mismo hilo (sigue 1), renombrar (200), 4 mensajes, borrar (204) y 404 del hilo
-  borrado.
+- **Smoke producción 6/6 OK** (tras deploy manual): crear hilo lazy (devuelve
+  `thread_id`), listar (1 hilo), 2.º envío al mismo hilo (sigue 1), renombrar
+  (200), 4 mensajes, borrar (204) y 404 del hilo borrado.
 
 ## Backlog restante
 

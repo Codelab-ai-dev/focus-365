@@ -1,7 +1,7 @@
 # Bitácora de sesión — Rebanada 25: entrenador IA / sugerencias (entrenamiento slice B)
 
 **Fecha:** 2026-06-17
-**Estado al cierre:** Mergeada a `main` y pusheada. **Smoke de producción pendiente del deploy manual.**
+**Estado al cierre:** Completada, mergeada a `main` y **verificada en producción** (smoke 4/4 tras deploy manual; el POST generó una sugerencia real con Groq).
 **Rama:** `plan-25-entrenador-ia` (mezclada `--no-ff` y borrada).
 
 ## Contexto
@@ -67,9 +67,8 @@ wiring · `346aa2c` lib · `ca17a68` panel · merge · script de smoke.
 - Backend: build + vet limpios; `go test -p 1 ./...` verde (tests nuevos de store,
   servicio y handler; 18 en `training`).
 - Frontend: **154/154** + build OK.
-- **Smoke producción:** pendiente del deploy manual. `scripts/smoke-r25.sh`
-  cubre: GET sin sugerencia → null, POST genera (Groq real) → content, GET
-  persistida, focus largo → 400.
+- **Smoke producción 4/4 OK** (tras deploy manual): GET sin sugerencia → null,
+  POST genera (Groq real → content), GET persistida, focus largo → 400.
 
 ## Backlog restante
 

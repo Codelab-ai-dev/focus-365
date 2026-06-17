@@ -136,6 +136,13 @@ type HabitLog struct {
 	CreatedAt time.Time `json:"created_at"`
 }
 
+type TrainingSuggestion struct {
+	UserID    uuid.UUID `json:"user_id"`
+	Focus     string    `json:"focus"`
+	Content   string    `json:"content"`
+	CreatedAt time.Time `json:"created_at"`
+}
+
 type Transaction struct {
 	ID         uuid.UUID `json:"id"`
 	UserID     uuid.UUID `json:"user_id"`

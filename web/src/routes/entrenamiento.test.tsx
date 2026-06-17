@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { render, screen, waitFor } from "@testing-library/react";
+import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import {
@@ -20,7 +20,25 @@ vi.mock("@/lib/auth", () => ({
   AuthProvider: ({ children }: { children: React.ReactNode }) => children,
 }));
 
+vi.mock("@/lib/fitnessProfile", () => ({
+  getProfile: vi.fn(async () => ({
+    birthdate: null,
+    sex: null,
+    height_cm: null,
+    weight_grams: null,
+    objective: "hipertrofia",
+    location: "casa",
+    level: null,
+    weekly_days: 4,
+    equipment: ["mancuernas"],
+    limitations: "",
+    updated_at: "",
+  })),
+  saveProfile: vi.fn(async () => ({ equipment: [], limitations: "", updated_at: "" })),
+}));
+
 import { Route as EntrenamientoRoute } from "./entrenamiento";
+import { saveProfile } from "@/lib/fitnessProfile";
 
 function fetchMock() {
   return vi.fn((url: string, opts?: RequestInit) => {
@@ -116,6 +134,22 @@ describe("EntrenamientoPage", () => {
       const body = JSON.parse(post![1].body as string);
       expect(body.sets[0].weight_grams).toBe(80000);
       expect(body.sets[0].reps).toBe(8);
+    });
+  });
+
+  it("abre Mi perfil y precarga el objetivo", async () => {
+    renderPage();
+    await userEvent.click(await screen.findByRole("button", { name: "Mi perfil" }));
+    expect(await screen.findByLabelText("Objetivo")).toHaveValue("hipertrofia");
+  });
+
+  it("guardar llama saveProfile", async () => {
+    renderPage();
+    await userEvent.click(await screen.findByRole("button", { name: "Mi perfil" }));
+    const dialog = await screen.findByRole("dialog");
+    await userEvent.click(within(dialog).getByRole("button", { name: "Guardar" }));
+    await waitFor(() => {
+      expect(saveProfile).toHaveBeenCalled();
     });
   });
 

@@ -1,8 +1,11 @@
 package training
 
 import (
+	"errors"
 	"net/http"
+	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/focus365/api/internal/auth"
 	"github.com/focus365/api/internal/httpx"
@@ -37,6 +40,8 @@ func Routes(svc *Service) http.Handler {
 	r.Delete("/workouts/{id}", handleDeleteWorkout(svc))
 	r.Get("/profile", handleGetProfile(svc))
 	r.Put("/profile", handleSaveProfile(svc))
+	r.Get("/suggestion", handleGetSuggestion(svc))
+	r.Post("/suggestion", handleSuggest(svc))
 	return r
 }
 
@@ -236,6 +241,58 @@ func handleSaveProfile(svc *Service) http.HandlerFunc {
 			Limitations: limitations,
 		})
 		if err != nil {
+			httpx.WriteErr(w, http.StatusInternalServerError, "error interno")
+			return
+		}
+		httpx.WriteJSON(w, http.StatusOK, out)
+	}
+}
+
+type suggestReq struct {
+	Focus string `json:"focus"`
+}
+
+func handleGetSuggestion(svc *Service) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		userID, ok := auth.UserIDFromContext(r.Context())
+		if !ok {
+			httpx.WriteErr(w, http.StatusUnauthorized, "no autorizado")
+			return
+		}
+		s, err := svc.Suggestion(r.Context(), userID)
+		if err != nil {
+			httpx.WriteErr(w, http.StatusInternalServerError, "error interno")
+			return
+		}
+		// s puede ser nil -> null (200).
+		httpx.WriteJSON(w, http.StatusOK, s)
+	}
+}
+
+func handleSuggest(svc *Service) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		userID, ok := auth.UserIDFromContext(r.Context())
+		if !ok {
+			httpx.WriteErr(w, http.StatusUnauthorized, "no autorizado")
+			return
+		}
+		var req suggestReq
+		if !httpx.DecodeAndValidate(w, r, &req) {
+			return
+		}
+		focus := strings.TrimSpace(req.Focus)
+		if utf8.RuneCountInString(focus) > maxFocusChars {
+			httpx.WriteErr(w, http.StatusBadRequest, "el enfoque es demasiado largo")
+			return
+		}
+		now := time.Now().UTC()
+		today := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, time.UTC)
+		out, err := svc.SuggestTraining(r.Context(), userID, focus, today)
+		if err != nil {
+			if errors.Is(err, ErrUnavailable) {
+				httpx.WriteErr(w, http.StatusServiceUnavailable, "el entrenador no está disponible por ahora")
+				return
+			}
 			httpx.WriteErr(w, http.StatusInternalServerError, "error interno")
 			return
 		}

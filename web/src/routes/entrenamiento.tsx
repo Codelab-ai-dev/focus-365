@@ -15,6 +15,7 @@ import {
 } from "@/lib/training";
 import { Modal } from "@/ui/Modal";
 import { getProfile, saveProfile, type FitnessProfile } from "@/lib/fitnessProfile";
+import { getSuggestion, generateSuggestion, type TrainingSuggestion } from "@/lib/trainingSuggestion";
 import { PageTransition } from "@/ui/PageTransition";
 import { Card } from "@/ui/Card";
 import { Button } from "@/ui/Button";
@@ -56,6 +57,8 @@ function EntrenamientoPage() {
   const [rows, setRows] = useState<SetRow[]>([emptyRow()]);
   const [error, setError] = useState<string | null>(null);
   const [profileOpen, setProfileOpen] = useState(false);
+  const [focus, setFocus] = useState("");
+  const [suggestError, setSuggestError] = useState<string | null>(null);
 
   function invalidate() {
     qc.invalidateQueries({ queryKey: ["training"] });
@@ -89,6 +92,21 @@ function EntrenamientoPage() {
   const deleteMutation = useMutation({
     mutationFn: (id: string) => removeWorkout(id),
     onSuccess: invalidate,
+  });
+
+  const suggestionQuery = useQuery({
+    queryKey: ["training-suggestion"],
+    queryFn: getSuggestion,
+    enabled: !!user,
+  });
+  const suggestMutation = useMutation({
+    mutationFn: () => generateSuggestion(focus.trim()),
+    onSuccess: (s) => {
+      setSuggestError(null);
+      qc.setQueryData<TrainingSuggestion | null>(["training-suggestion"], s);
+    },
+    onError: (e) =>
+      setSuggestError(e instanceof Error ? e.message : "No se pudo generar la sugerencia"),
   });
 
   function updateRow(i: number, patch: Partial<SetRow>) {
@@ -222,6 +240,48 @@ function EntrenamientoPage() {
               {createMutation.isPending ? "Guardando…" : "Guardar"}
             </Button>
           </form>
+        </Card>
+
+        <Card className="mt-8 p-6 space-y-3">
+          <h2 className="font-display text-lg font-bold tracking-tight">Entrenador IA</h2>
+          <div className="flex gap-2">
+            <Input
+              type="text"
+              aria-label="Enfoque"
+              placeholder="enfoque opcional: pierna, 30 min, sin saltos…"
+              value={focus}
+              onChange={(e) => setFocus(e.target.value)}
+              className="flex-1"
+            />
+            <Button
+              type="button"
+              onClick={() => suggestMutation.mutate()}
+              disabled={suggestMutation.isPending}
+              className="px-3 py-1 text-xs"
+            >
+              {suggestMutation.isPending ? "Generando…" : "Sugerir"}
+            </Button>
+          </div>
+          {suggestError && (
+            <p className="rounded-md border-2 border-ink bg-danger-bg px-3 py-2 text-xs font-bold text-danger-fg shadow-brutal-sm">
+              {suggestError}
+            </p>
+          )}
+          {suggestionQuery.data ? (
+            <div className="rounded-lg border-2 border-ink bg-surface px-3 py-2 shadow-brutal-sm">
+              <p className="whitespace-pre-wrap text-sm">{suggestionQuery.data.content}</p>
+              {suggestionQuery.data.created_at && (
+                <p className="mt-2 text-[10px] uppercase tracking-[0.12em] text-muted">
+                  {suggestionQuery.data.focus ? `enfoque: ${suggestionQuery.data.focus} · ` : ""}
+                  {relativeDateTraining(suggestionQuery.data.created_at)}
+                </p>
+              )}
+            </div>
+          ) : (
+            !suggestMutation.isPending && (
+              <p className="text-sm text-muted">Pedí una sugerencia de entrenamiento.</p>
+            )
+          )}
         </Card>
 
         <section className="mt-8">
@@ -475,4 +535,13 @@ function ProfileModal({ open, onClose }: { open: boolean; onClose: () => void })
       </form>
     </Modal>
   );
+}
+
+function relativeDateTraining(iso: string): string {
+  if (!iso) return "";
+  const d = new Date(iso);
+  const days = Math.floor((Date.now() - d.getTime()) / 86_400_000);
+  if (days <= 0) return "hoy";
+  if (days < 7) return `${days}d`;
+  return d.toLocaleDateString();
 }

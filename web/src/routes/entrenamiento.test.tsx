@@ -37,6 +37,15 @@ vi.mock("@/lib/fitnessProfile", () => ({
   saveProfile: vi.fn(async () => ({ equipment: [], limitations: "", updated_at: "" })),
 }));
 
+vi.mock("@/lib/trainingSuggestion", () => ({
+  getSuggestion: vi.fn(async () => null),
+  generateSuggestion: vi.fn(async () => ({
+    focus: "",
+    content: "Hacé sentadillas 4x8",
+    created_at: "",
+  })),
+}));
+
 import { Route as EntrenamientoRoute } from "./entrenamiento";
 import { saveProfile } from "@/lib/fitnessProfile";
 
@@ -151,6 +160,12 @@ describe("EntrenamientoPage", () => {
     await waitFor(() => {
       expect(saveProfile).toHaveBeenCalled();
     });
+  });
+
+  it("Sugerir genera y muestra la sugerencia", async () => {
+    renderPage();
+    await userEvent.click(await screen.findByRole("button", { name: "Sugerir" }));
+    expect(await screen.findByText(/Hacé sentadillas 4x8/)).toBeInTheDocument();
   });
 
   it("al borrar una sesión dispara un DELETE", async () => {

@@ -1,7 +1,7 @@
 # Bitácora de sesión — Rebanada 23: notas de avance por meta
 
 **Fecha:** 2026-06-17
-**Estado al cierre:** Mergeada a `main` y pusheada. **Smoke de producción pendiente del deploy manual.**
+**Estado al cierre:** Completada, mergeada a `main` y **verificada en producción** (smoke 5/5 tras deploy manual).
 **Rama:** `plan-23-notas-metas` (mezclada `--no-ff` y borrada).
 
 ## Qué se entregó
@@ -58,9 +58,10 @@ Varias notas por meta, incluso del mismo día. Agregar y borrar (sin editar).
 - Backend: build + vet limpios; `go test -p 1 ./...` verde (tests nuevos de store
   y handler de notas).
 - Frontend: **146/146** + build OK.
-- **Smoke producción:** pendiente del deploy manual. `scripts/smoke-r23.sh`
-  cubre: crear meta + 2 notas, listar (2, orden desc), body vacío → 400, borrar
-  (204), nota en meta inexistente → 404.
+- **Smoke producción 5/5 OK** (tras deploy manual): crear meta + 2 notas, listar
+  (2, orden desc), body vacío → 400, borrar (204), nota en meta inexistente →
+  404. (El primer intento falló por un bug del propio script —`sed` greedy tomaba
+  el último `note_date`—; la API estaba correcta. Corregido con `grep -o`.)
 
 ## Backlog restante
 

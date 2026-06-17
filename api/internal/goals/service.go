@@ -80,6 +80,53 @@ func (s *Service) Delete(ctx context.Context, userID, id uuid.UUID) (bool, error
 	return n > 0, nil
 }
 
+func buildNote(n store.GoalNote) Note {
+	return Note{
+		ID:        n.ID.String(),
+		GoalID:    n.GoalID.String(),
+		NoteDate:  n.NoteDate.Format(dateLayout),
+		Body:      n.Body,
+		CreatedAt: n.CreatedAt,
+	}
+}
+
+// Notes lista las notas de una meta del usuario (orden del store: fecha desc).
+func (s *Service) Notes(ctx context.Context, userID, goalID uuid.UUID) ([]Note, error) {
+	rows, err := s.q.ListGoalNotes(ctx, store.ListGoalNotesParams{GoalID: goalID, UserID: userID})
+	if err != nil {
+		return nil, err
+	}
+	out := make([]Note, 0, len(rows))
+	for _, n := range rows {
+		out = append(out, buildNote(n))
+	}
+	return out, nil
+}
+
+// AddNote cuelga una nota de la meta. ErrGoalNotFound si la meta no es del usuario.
+func (s *Service) AddNote(ctx context.Context, userID, goalID uuid.UUID, noteDate time.Time, body string) (*Note, error) {
+	n, err := s.q.CreateGoalNote(ctx, store.CreateGoalNoteParams{
+		GoalID: goalID, UserID: userID, NoteDate: noteDate, Body: strings.TrimSpace(body),
+	})
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, ErrGoalNotFound
+		}
+		return nil, err
+	}
+	v := buildNote(n)
+	return &v, nil
+}
+
+// DeleteNote borra una nota del usuario. Devuelve si borró algo.
+func (s *Service) DeleteNote(ctx context.Context, userID, noteID uuid.UUID) (bool, error) {
+	n, err := s.q.DeleteGoalNote(ctx, store.DeleteGoalNoteParams{ID: noteID, UserID: userID})
+	if err != nil {
+		return false, err
+	}
+	return n > 0, nil
+}
+
 func buildGoal(g store.Goal, today time.Time) *Goal {
 	return &Goal{
 		ID:        g.ID.String(),

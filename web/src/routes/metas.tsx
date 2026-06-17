@@ -7,11 +7,19 @@ import {
   createGoal,
   patchGoal,
   deleteGoal,
+  todayString,
   type Goal,
   type GoalStatus,
 } from "@/lib/goals";
+import {
+  listGoalNotes,
+  createGoalNote,
+  deleteGoalNote,
+  type GoalNote,
+} from "@/lib/goalNotes";
 import { PageTransition } from "@/ui/PageTransition";
 import { Card } from "@/ui/Card";
+import { Modal } from "@/ui/Modal";
 import { Button } from "@/ui/Button";
 import { Input } from "@/ui/Input";
 import { Chip } from "@/ui/Chip";
@@ -56,6 +64,7 @@ function MetasPage() {
   const [dimension, setDimension] = useState("espiritual");
   const [deadline, setDeadline] = useState("");
   const [error, setError] = useState<string | null>(null);
+  const [notesGoal, setNotesGoal] = useState<Goal | null>(null);
 
   function invalidate() {
     qc.invalidateQueries({ queryKey: ["goals"] });
@@ -214,6 +223,15 @@ function MetasPage() {
                       </p>
                     )}
                     <div className="mt-3 flex flex-wrap gap-2">
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        aria-label={`Notas de ${g.title}`}
+                        onClick={() => setNotesGoal(g)}
+                        className="px-3 py-1 text-xs"
+                      >
+                        📝 Notas
+                      </Button>
                       {tab === "active" && (
                         <>
                           <Button
@@ -265,7 +283,118 @@ function MetasPage() {
             <p className="text-sm text-muted">Aún no tenés metas en esta vista.</p>
           )}
         </section>
+
+        <GoalNotesModal goal={notesGoal} onClose={() => setNotesGoal(null)} />
       </div>
     </PageTransition>
   );
+}
+
+function GoalNotesModal({
+  goal,
+  onClose,
+}: {
+  goal: Goal | null;
+  onClose: () => void;
+}) {
+  const qc = useQueryClient();
+  const [body, setBody] = useState("");
+  const [noteDate, setNoteDate] = useState(todayString());
+  const [error, setError] = useState<string | null>(null);
+
+  const notesQuery = useQuery({
+    queryKey: ["goal-notes", goal?.id],
+    queryFn: () => listGoalNotes(goal!.id),
+    enabled: goal !== null,
+  });
+
+  const addMutation = useMutation({
+    mutationFn: () => createGoalNote(goal!.id, { note_date: noteDate, body }),
+    onSuccess: () => {
+      setBody("");
+      setError(null);
+      qc.invalidateQueries({ queryKey: ["goal-notes", goal!.id] });
+    },
+    onError: (e) => setError(e instanceof Error ? e.message : "No se pudo guardar"),
+  });
+
+  const delMutation = useMutation({
+    mutationFn: (noteId: string) => deleteGoalNote(goal!.id, noteId),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["goal-notes", goal!.id] }),
+  });
+
+  const notes = notesQuery.data ?? [];
+
+  return (
+    <Modal open={goal !== null} onClose={onClose} title={goal ? goal.title : ""}>
+      <div className="space-y-4 text-sm">
+        <form
+          onSubmit={(e) => {
+            e.preventDefault();
+            if (body.trim()) addMutation.mutate();
+          }}
+          className="space-y-2"
+        >
+          <textarea
+            aria-label="Nueva nota"
+            placeholder="¿qué avanzaste?"
+            value={body}
+            onChange={(e) => setBody(e.target.value)}
+            className="w-full rounded-lg border-2 border-ink bg-surface px-3 py-2 shadow-brutal-sm"
+            rows={3}
+          />
+          <div className="flex items-center gap-2">
+            <input
+              type="date"
+              aria-label="Fecha de la nota"
+              value={noteDate}
+              onChange={(e) => setNoteDate(e.target.value)}
+              className="rounded-lg border-2 border-ink bg-surface px-2 py-1"
+            />
+            <Button type="submit" disabled={addMutation.isPending || body.trim() === ""} className="px-3 py-1 text-xs">
+              {addMutation.isPending ? "Guardando…" : "Agregar"}
+            </Button>
+          </div>
+          {error && (
+            <p className="rounded-md border-2 border-ink bg-danger-bg px-3 py-2 text-xs font-bold text-danger-fg shadow-brutal-sm">
+              {error}
+            </p>
+          )}
+        </form>
+
+        {notes.length === 0 ? (
+          <p className="text-muted">Sin notas todavía.</p>
+        ) : (
+          <ul className="space-y-2">
+            {notes.map((n: GoalNote) => (
+              <li key={n.id} className="rounded-lg border-2 border-ink bg-surface px-3 py-2 shadow-brutal-sm">
+                <div className="flex items-start justify-between gap-2">
+                  <span className="text-xs font-bold text-muted">{formatDay(n.note_date)}</span>
+                  <button
+                    type="button"
+                    aria-label={`Borrar nota del ${n.note_date}`}
+                    onClick={() => delMutation.mutate(n.id)}
+                    className="shrink-0 text-xs font-bold text-ink"
+                  >
+                    🗑️
+                  </button>
+                </div>
+                <p className="mt-1 whitespace-pre-wrap">{n.body}</p>
+              </li>
+            ))}
+          </ul>
+        )}
+      </div>
+    </Modal>
+  );
+}
+
+// formatDay muestra "lun 16 jun" parseando YYYY-MM-DD como fecha LOCAL.
+function formatDay(iso: string): string {
+  const [y, m, d] = iso.split("-").map(Number);
+  return new Date(y, m - 1, d).toLocaleDateString("es", {
+    weekday: "short",
+    day: "numeric",
+    month: "short",
+  });
 }

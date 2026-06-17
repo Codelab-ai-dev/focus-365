@@ -346,3 +346,70 @@ func TestGroqExtractVisionHTTPError(t *testing.T) {
 		t.Fatal("esperaba error en HTTP 400")
 	}
 }
+
+func TestExtractFunctionToolCalls(t *testing.T) {
+	// Caso del bug: el modelo emitió la llamada como TEXTO embebida en una frase.
+	cleaned, calls := extractFunctionToolCalls(
+		`Podríamos <function=registrar_checkin>{"mood": 9, "energy": 9}</function> para reflejar.`)
+	if len(calls) != 1 || calls[0].Name != "registrar_checkin" ||
+		calls[0].Arguments != `{"mood": 9, "energy": 9}` {
+		t.Fatalf("calls = %+v", calls)
+	}
+	if strings.Contains(cleaned, "<function") {
+		t.Errorf("cleaned aún tiene la etiqueta: %q", cleaned)
+	}
+	if !strings.Contains(cleaned, "Podríamos") || !strings.Contains(cleaned, "para reflejar.") {
+		t.Errorf("cleaned perdió el texto conversacional: %q", cleaned)
+	}
+
+	// Sin etiqueta: contenido intacto.
+	c2, k2 := extractFunctionToolCalls("Hola, todo bien.")
+	if c2 != "Hola, todo bien." || len(k2) != 0 {
+		t.Errorf("c2=%q k2=%+v", c2, k2)
+	}
+
+	// Args con JSON inválido: no se extrae (no se rompe el turno).
+	_, k3 := extractFunctionToolCalls("x <function=foo>esto no es json</function> y")
+	if len(k3) != 0 {
+		t.Errorf("no debería extraer con JSON inválido: %+v", k3)
+	}
+
+	// Solo la etiqueta (sin texto alrededor): cleaned vacío, un call.
+	c4, k4 := extractFunctionToolCalls(`<function=crear_meta>{"titulo":"x","dimension":"fisica"}</function>`)
+	if len(k4) != 1 || strings.TrimSpace(c4) != "" {
+		t.Errorf("c4=%q k4=%+v", c4, k4)
+	}
+}
+
+func TestGroqChatStreamTextFunctionCall(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		// El modelo emite la llamada como TEXTO, partida en varios chunks SSE.
+		sseChunk(w, `{"choices":[{"delta":{"content":"Podríamos "}}]}`)
+		sseChunk(w, `{"choices":[{"delta":{"content":"<function=registrar_che"}}]}`)
+		sseChunk(w, `{"choices":[{"delta":{"content":"ckin>{\"mood\": 9, \"energy\": 9}</function>"}}]}`)
+		sseChunk(w, `{"choices":[{"delta":{"content":" para reflejar."}}]}`)
+		sseChunk(w, `[DONE]`)
+	}))
+	defer srv.Close()
+
+	c := newGroqClient(srv.URL, "k", "llama-3.3-70b-versatile", "vm")
+	var deltas strings.Builder
+	tools := []Tool{{Name: "registrar_checkin", Description: "d", Parameters: json.RawMessage(`{"type":"object"}`)}}
+	text, tcs, err := c.ChatStream(context.Background(), "sys",
+		[]ChatMsg{{Role: "user", Content: "registra"}}, tools,
+		func(d string) { deltas.WriteString(d) })
+	if err != nil {
+		t.Fatalf("ChatStream: %v", err)
+	}
+	if len(tcs) != 1 || tcs[0].Name != "registrar_checkin" ||
+		tcs[0].Arguments != `{"mood": 9, "energy": 9}` {
+		t.Fatalf("tcs = %+v", tcs)
+	}
+	if strings.Contains(text, "<function") {
+		t.Errorf("el texto persistido aún tiene la etiqueta: %q", text)
+	}
+	if strings.Contains(deltas.String(), "<function") {
+		t.Errorf("se streameó la etiqueta cruda al usuario: %q", deltas.String())
+	}
+}

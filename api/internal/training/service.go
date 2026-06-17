@@ -80,7 +80,7 @@ func (s *Service) CreateWorkout(ctx context.Context, userID uuid.UUID, in Workou
 			cache[key] = exID
 		}
 		if _, err := qtx.CreateWorkoutSet(ctx, store.CreateWorkoutSetParams{
-			WorkoutID: w.ID, ExerciseID: exID, Position: int32(i), Reps: set.Reps, WeightGrams: set.WeightGrams,
+			WorkoutID: w.ID, ExerciseID: exID, Position: int32(i), Reps: set.Reps, WeightGrams: set.WeightGrams, Note: set.Note,
 		}); err != nil {
 			return nil, err
 		}
@@ -107,7 +107,7 @@ func (s *Service) GetWorkout(ctx context.Context, userID, id uuid.UUID) (*Workou
 	}
 	sets := make([]WorkoutSet, 0, len(rows))
 	for _, r := range rows {
-		sets = append(sets, WorkoutSet{Exercise: r.ExerciseName, Reps: r.Reps, WeightGrams: r.WeightGrams})
+		sets = append(sets, WorkoutSet{Exercise: r.ExerciseName, Reps: r.Reps, WeightGrams: r.WeightGrams, Note: r.Note})
 	}
 	return workoutView(w, sets), nil
 }
@@ -135,7 +135,7 @@ func (s *Service) ListWorkouts(ctx context.Context, userID uuid.UUID, from, to *
 	byWorkout := make(map[uuid.UUID][]WorkoutSet)
 	for _, st := range sets {
 		byWorkout[st.WorkoutID] = append(byWorkout[st.WorkoutID], WorkoutSet{
-			Exercise: st.ExerciseName, Reps: st.Reps, WeightGrams: st.WeightGrams,
+			Exercise: st.ExerciseName, Reps: st.Reps, WeightGrams: st.WeightGrams, Note: st.Note,
 		})
 	}
 	out := make([]Workout, 0, len(rows))

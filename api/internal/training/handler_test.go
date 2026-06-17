@@ -284,3 +284,49 @@ func TestProfileIsolation(t *testing.T) {
 		t.Fatalf("el usuario B vio un perfil ajeno: %s", rec.Body.String())
 	}
 }
+
+func TestWorkoutSetNoteRoundTrip(t *testing.T) {
+	e := newEnv(t)
+	tok := e.token(t, "setnote@b.com")
+
+	rec := do(t, e.h, http.MethodPost, "/training/workouts", tok, map[string]any{
+		"date": "2026-06-17", "type": "Pierna",
+		"sets": []map[string]any{
+			{"exercise": "Sentadilla", "reps": 8, "weight_grams": 80000, "note": "leí pesado"},
+		},
+	})
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("POST workout code = %d, body=%s", rec.Code, rec.Body.String())
+	}
+
+	rec = do(t, e.h, http.MethodGet, "/training/workouts", tok, nil)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("GET workouts code = %d", rec.Code)
+	}
+	var ws []map[string]any
+	_ = json.Unmarshal(rec.Body.Bytes(), &ws)
+	if len(ws) != 1 {
+		t.Fatalf("workouts = %d", len(ws))
+	}
+	sets, _ := ws[0]["sets"].([]any)
+	if len(sets) != 1 {
+		t.Fatalf("sets = %d", len(sets))
+	}
+	s0, _ := sets[0].(map[string]any)
+	if s0["note"] != "leí pesado" {
+		t.Fatalf("set note = %v", s0["note"])
+	}
+}
+
+func TestWorkoutSetNoteTooLong(t *testing.T) {
+	e := newEnv(t)
+	tok := e.token(t, "setnotelong@b.com")
+	long := strings.Repeat("a", 201)
+	rec := do(t, e.h, http.MethodPost, "/training/workouts", tok, map[string]any{
+		"date": "2026-06-17",
+		"sets": []map[string]any{{"exercise": "Sentadilla", "note": long}},
+	})
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("nota larga code = %d, want 400", rec.Code)
+	}
+}

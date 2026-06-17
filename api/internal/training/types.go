@@ -16,6 +16,7 @@ type SetInput struct {
 	Exercise    string
 	Reps        *int32
 	WeightGrams *int32
+	Note        string
 }
 
 // WorkoutInput son los datos de dominio para crear una sesión completa.
@@ -31,6 +32,7 @@ type WorkoutSet struct {
 	Exercise    string `json:"exercise"`
 	Reps        *int32 `json:"reps"`
 	WeightGrams *int32 `json:"weight_grams"`
+	Note        string `json:"note"`
 }
 
 // Workout es la vista de dominio de una sesión que se serializa a JSON.

@@ -172,6 +172,9 @@ func buildSuggestionContext(p *store.FitnessProfile, workouts []store.Workout, s
 				if st.WeightGrams != nil {
 					fmt.Fprintf(&b, " @ %.1f kg", float64(*st.WeightGrams)/1000)
 				}
+				if st.Note != "" {
+					b.WriteString(" (" + st.Note + ")")
+				}
 				b.WriteString("\n")
 			}
 		}

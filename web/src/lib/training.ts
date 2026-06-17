@@ -10,6 +10,7 @@ export type WorkoutSet = {
   exercise: string;
   reps: number | null;
   weight_grams: number | null;
+  note: string;
 };
 
 export type Workout = {
@@ -25,6 +26,7 @@ export type SetInput = {
   exercise: string;
   reps: number | null;
   weight_grams: number | null;
+  note: string;
 };
 
 export type WorkoutInput = {

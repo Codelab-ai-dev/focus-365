@@ -74,7 +74,7 @@ function fetchMock() {
             date: "2026-06-11",
             type: "Fuerza",
             note: "",
-            sets: [{ exercise: "Sentadilla", reps: 8, weight_grams: 80000 }],
+            sets: [{ exercise: "Sentadilla", reps: 8, weight_grams: 80000, note: "molestia rodilla" }],
             created_at: "",
           },
         ]),
@@ -125,6 +125,16 @@ describe("EntrenamientoPage", () => {
     expect(
       await screen.findByText((_, el) => el?.tagName === "LI" && el.textContent?.startsWith("Sentadilla") === true)
     ).toBeInTheDocument();
+  });
+
+  it("el form muestra un input de nota por serie", async () => {
+    renderPage();
+    expect(await screen.findByLabelText("Nota serie 1")).toBeInTheDocument();
+  });
+
+  it("el historial muestra la nota de una serie", async () => {
+    renderPage();
+    expect(await screen.findByText("molestia rodilla")).toBeInTheDocument();
   });
 
   it("al guardar dispara un POST con el peso en gramos", async () => {

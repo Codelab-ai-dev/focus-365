@@ -57,7 +57,7 @@ describe("lib/training", () => {
       date: "2026-06-11",
       type: "Fuerza",
       note: "",
-      sets: [{ exercise: "Sentadilla", reps: 8, weight_grams: 80000 }],
+      sets: [{ exercise: "Sentadilla", reps: 8, weight_grams: 80000, note: "" }],
     });
     const [url, opts] = fetchMock.mock.calls[0];
     expect(url).toBe("/api/v1/training/workouts");

@@ -25,10 +25,10 @@ import { Reveal, RevealItem } from "@/ui/Reveal";
 
 export const Route = createFileRoute("/entrenamiento")({ component: EntrenamientoPage });
 
-type SetRow = { exercise: string; reps: string; weightKg: string };
+type SetRow = { exercise: string; reps: string; weightKg: string; note: string };
 
 function emptyRow(): SetRow {
-  return { exercise: "", reps: "", weightKg: "" };
+  return { exercise: "", reps: "", weightKg: "", note: "" };
 }
 
 function EntrenamientoPage() {
@@ -76,6 +76,7 @@ function EntrenamientoPage() {
             exercise: r.exercise.trim(),
             reps: r.reps === "" ? null : Number(r.reps),
             weight_grams: r.weightKg === "" ? null : kgToGrams(Number(r.weightKg)),
+            note: r.note.trim(),
           })),
       }),
     onSuccess: () => {
@@ -170,34 +171,43 @@ function EntrenamientoPage() {
             <div className="space-y-3">
               <span className="text-[10px] font-bold uppercase tracking-[0.12em] text-muted">Series</span>
               {rows.map((row, i) => (
-                <div key={i} className="flex gap-2">
+                <div key={i} className="space-y-1">
+                  <div className="flex gap-2">
+                    <Input
+                      type="text"
+                      aria-label={`Ejercicio ${i + 1}`}
+                      list="catalogo-ejercicios"
+                      placeholder="Ejercicio"
+                      value={row.exercise}
+                      onChange={(e) => updateRow(i, { exercise: e.target.value })}
+                      className="flex-1"
+                    />
+                    <Input
+                      type="number"
+                      aria-label={`Reps ${i + 1}`}
+                      placeholder="Reps"
+                      min="0"
+                      value={row.reps}
+                      onChange={(e) => updateRow(i, { reps: e.target.value })}
+                      className="w-20"
+                    />
+                    <Input
+                      type="number"
+                      aria-label={`Peso ${i + 1}`}
+                      placeholder="kg"
+                      min="0"
+                      step="0.5"
+                      value={row.weightKg}
+                      onChange={(e) => updateRow(i, { weightKg: e.target.value })}
+                      className="w-20"
+                    />
+                  </div>
                   <Input
                     type="text"
-                    aria-label={`Ejercicio ${i + 1}`}
-                    list="catalogo-ejercicios"
-                    placeholder="Ejercicio"
-                    value={row.exercise}
-                    onChange={(e) => updateRow(i, { exercise: e.target.value })}
-                    className="flex-1"
-                  />
-                  <Input
-                    type="number"
-                    aria-label={`Reps ${i + 1}`}
-                    placeholder="Reps"
-                    min="0"
-                    value={row.reps}
-                    onChange={(e) => updateRow(i, { reps: e.target.value })}
-                    className="w-20"
-                  />
-                  <Input
-                    type="number"
-                    aria-label={`Peso ${i + 1}`}
-                    placeholder="kg"
-                    min="0"
-                    step="0.5"
-                    value={row.weightKg}
-                    onChange={(e) => updateRow(i, { weightKg: e.target.value })}
-                    className="w-20"
+                    aria-label={`Nota serie ${i + 1}`}
+                    placeholder="nota de la serie (opcional)"
+                    value={row.note}
+                    onChange={(e) => updateRow(i, { note: e.target.value })}
                   />
                 </div>
               ))}
@@ -323,6 +333,9 @@ function EntrenamientoPage() {
                               {" · "}
                               <Chip variant="sky" size="sm">{gramsToKg(s.weight_grams)} kg</Chip>
                             </>
+                          )}
+                          {s.note && (
+                            <span className="block text-xs text-muted">{s.note}</span>
                           )}
                         </li>
                       ))}

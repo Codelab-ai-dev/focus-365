@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, afterEach } from "vitest";
-import { getInsight, getMessages, sendMessage, sendMessageStream, confirmAction, cancelAction, undoAction, importFile, getPendingUploads, type Insight, type Message, type Action } from "./ai";
+import { getInsight, getThreads, getThreadMessages, renameThread, deleteThread, sendMessageStream, confirmAction, cancelAction, undoAction, importFile, getPendingUploads, type Insight, type Message, type Action } from "./ai";
 import { ApiError } from "./api";
 
 function okJson(data: unknown) {
@@ -28,51 +28,6 @@ describe("getInsight", () => {
   });
 });
 
-describe("getMessages", () => {
-  afterEach(() => vi.restoreAllMocks());
-
-  it("hace GET a /api/v1/ai/messages y devuelve el array", async () => {
-    const messages: Message[] = [
-      { id: "m1", role: "user", content: "hola", created_at: "2026-06-11T10:00:00Z" },
-      { id: "m2", role: "assistant", content: "qué tal", created_at: "2026-06-11T10:00:01Z" },
-    ];
-    const fetchMock = vi.fn((_url: string, _opts?: RequestInit) =>
-      okJson({ messages })
-    );
-    vi.stubGlobal("fetch", fetchMock);
-
-    const got = await getMessages();
-    expect(got).toEqual(messages);
-    expect(fetchMock.mock.calls[0][0]).toBe("/api/v1/ai/messages");
-    const opts = fetchMock.mock.calls[0][1];
-    expect(opts?.method ?? "GET").toBe("GET");
-  });
-});
-
-describe("sendMessage", () => {
-  afterEach(() => vi.restoreAllMocks());
-
-  it("hace POST a /api/v1/ai/chat con el mensaje y devuelve el reply", async () => {
-    const reply: Message = {
-      id: "m3",
-      role: "assistant",
-      content: "Vas verde este ciclo.",
-      created_at: "2026-06-11T10:00:02Z",
-    };
-    const fetchMock = vi.fn((_url: string, _opts?: RequestInit) =>
-      okJson({ reply })
-    );
-    vi.stubGlobal("fetch", fetchMock);
-
-    const got = await sendMessage("¿cómo voy?");
-    expect(got).toEqual(reply);
-
-    const [url, opts] = fetchMock.mock.calls[0];
-    expect(url).toBe("/api/v1/ai/chat");
-    expect(opts?.method).toBe("POST");
-    expect(JSON.parse(opts?.body as string)).toEqual({ message: "¿cómo voy?" });
-  });
-});
 
 function sseResponse(chunks: string[], status = 200) {
   const encoder = new TextEncoder();
@@ -91,7 +46,7 @@ describe("sendMessageStream", () => {
   afterEach(() => vi.restoreAllMocks());
 
   const doneEvent =
-    'event: done\ndata: {"reply":{"role":"assistant","content":"Vas bien.","created_at":"2026-06-11T10:00:02Z"}}\n\n';
+    'event: done\ndata: {"reply":{"role":"assistant","content":"Vas bien.","created_at":"2026-06-11T10:00:02Z"},"thread_id":"t1"}\n\n';
 
   it("acumula deltas vía onDelta y resuelve con el reply del done", async () => {
     const fetchMock = vi.fn(() =>
@@ -104,7 +59,7 @@ describe("sendMessageStream", () => {
     vi.stubGlobal("fetch", fetchMock);
 
     const deltas: string[] = [];
-    const reply = await sendMessageStream("¿cómo voy?", (d) => deltas.push(d));
+    const { reply } = await sendMessageStream("¿cómo voy?", undefined, (d) => deltas.push(d));
 
     expect(deltas).toEqual(["Vas ", "bien."]);
     expect(reply.content).toBe("Vas bien.");
@@ -123,7 +78,7 @@ describe("sendMessageStream", () => {
     );
 
     const deltas: string[] = [];
-    await sendMessageStream("hola", (d) => deltas.push(d));
+    await sendMessageStream("hola", undefined, (d) => deltas.push(d));
     expect(deltas).toEqual(["Hola"]);
   });
 
@@ -138,7 +93,7 @@ describe("sendMessageStream", () => {
       )
     );
 
-    await expect(sendMessageStream("hola", () => {})).rejects.toThrowError(
+    await expect(sendMessageStream("hola", undefined, () => {})).rejects.toThrowError(
       "asistente no disponible por ahora"
     );
   });
@@ -155,9 +110,9 @@ describe("sendMessageStream", () => {
       )
     );
 
-    const p = sendMessageStream("hola", () => {});
+    const p = sendMessageStream("hola", undefined, () => {});
     await expect(p).rejects.toBeInstanceOf(ApiError);
-    await expect(sendMessageStream("hola", () => {})).rejects.toThrowError(/no disponible/);
+    await expect(sendMessageStream("hola", undefined, () => {})).rejects.toThrowError(/no disponible/);
   });
 
   it("rechaza si el stream se cierra sin done ni error", async () => {
@@ -166,7 +121,7 @@ describe("sendMessageStream", () => {
       vi.fn(() => sseResponse(['event: delta\ndata: {"text":"Vas "}\n\n']))
     );
 
-    await expect(sendMessageStream("hola", () => {})).rejects.toThrowError(/cortó/);
+    await expect(sendMessageStream("hola", undefined, () => {})).rejects.toThrowError(/cortó/);
   });
 });
 
@@ -286,5 +241,58 @@ describe("getPendingUploads", () => {
     expect(fetchMock.mock.calls[0][0]).toBe("/api/v1/ai/import/pending");
     const opts = fetchMock.mock.calls[0][1];
     expect(opts?.method ?? "GET").toBe("GET");
+  });
+});
+
+describe("getThreads", () => {
+  afterEach(() => vi.restoreAllMocks());
+
+  it("getThreads pide la lista y devuelve threads", async () => {
+    const fetchMock = vi.fn(() =>
+      okJson({ threads: [{ id: "t1", title: "A", preview: "hola", updated_at: "2026-06-14T00:00:00Z" }] })
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    const threads = await getThreads();
+    expect(threads).toHaveLength(1);
+    expect(threads[0].title).toBe("A");
+    expect(String(fetchMock.mock.calls[0][0])).toContain("/api/v1/ai/threads");
+  });
+});
+
+describe("getThreadMessages", () => {
+  afterEach(() => vi.restoreAllMocks());
+
+  it("getThreadMessages pega al endpoint del hilo", async () => {
+    const fetchMock = vi.fn(() => okJson({ messages: [] }));
+    vi.stubGlobal("fetch", fetchMock);
+    await getThreadMessages("t1");
+    expect(String(fetchMock.mock.calls[0][0])).toContain("/api/v1/ai/threads/t1/messages");
+  });
+});
+
+describe("renameThread", () => {
+  afterEach(() => vi.restoreAllMocks());
+
+  it("renameThread hace PATCH con el título", async () => {
+    const fetchMock = vi.fn(() => okJson({ thread: { id: "t1", title: "Nuevo", preview: "", updated_at: "" } }));
+    vi.stubGlobal("fetch", fetchMock);
+    const th = await renameThread("t1", "Nuevo");
+    expect(th.title).toBe("Nuevo");
+    const opts = fetchMock.mock.calls[0][1] as RequestInit;
+    expect(opts.method).toBe("PATCH");
+    expect(String(opts.body)).toContain("Nuevo");
+  });
+});
+
+describe("deleteThread", () => {
+  afterEach(() => vi.restoreAllMocks());
+
+  it("deleteThread hace DELETE", async () => {
+    const fetchMock = vi.fn(() => new Response(null, { status: 204 }));
+    vi.stubGlobal("fetch", fetchMock);
+    await deleteThread("t1");
+    const opts = fetchMock.mock.calls[0][1] as RequestInit;
+    expect(opts.method).toBe("DELETE");
+    expect(String(fetchMock.mock.calls[0][0])).toContain("/api/v1/ai/threads/t1");
   });
 });

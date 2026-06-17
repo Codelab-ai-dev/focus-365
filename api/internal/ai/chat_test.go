@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"sort"
+	"strings"
 	"testing"
 	"time"
 
@@ -626,6 +627,50 @@ func TestUndoActionNotFound(t *testing.T) {
 	svc := NewChatService(fakeCtx{out: "{}"}, &memStore{}, &fakeChatGroq{}, &fakeChatGroq{}, newTestExecutor(&fakeCheckinSvc{}, &fakeFinanceSvc{}, &fakeHabitsSvc{}, &fakeGoalsSvc{}, &fakeTrainingSvc{}), true)
 	if _, err := svc.UndoAction(context.Background(), uuid.New(), uuid.New()); !errors.Is(err, ErrActionNotFound) {
 		t.Errorf("err = %v, want ErrActionNotFound", err)
+	}
+}
+
+func (m *memStore) SearchThreadsByTitle(ctx context.Context, userID uuid.UUID, term string, limit int32) ([]store.SearchThreadsByTitleRow, error) {
+	needle := strings.ToLower(strings.NewReplacer(`\%`, "%", `\_`, "_", `\\`, `\`).Replace(term))
+	out := []store.SearchThreadsByTitleRow{}
+	for _, t := range m.threads {
+		if t.userID == userID && strings.Contains(strings.ToLower(t.title), needle) {
+			out = append(out, store.SearchThreadsByTitleRow{ID: t.id, Title: t.title, UpdatedAt: t.updatedAt})
+			if int32(len(out)) >= limit {
+				break
+			}
+		}
+	}
+	return out, nil
+}
+
+func (m *memStore) SearchMessages(ctx context.Context, userID uuid.UUID, term string, limit int32) ([]store.SearchMessagesRow, error) {
+	needle := strings.ToLower(strings.NewReplacer(`\%`, "%", `\_`, "_", `\\`, `\`).Replace(term))
+	out := []store.SearchMessagesRow{}
+	for _, r := range m.rows {
+		if r.UserID == userID && strings.Contains(strings.ToLower(r.Content), needle) {
+			out = append(out, store.SearchMessagesRow{
+				ID: r.ID, ThreadID: r.ThreadID, Role: r.Role, Content: r.Content, CreatedAt: r.CreatedAt,
+			})
+			if int32(len(out)) >= limit {
+				break
+			}
+		}
+	}
+	return out, nil
+}
+
+func TestEscapeLike(t *testing.T) {
+	cases := map[string]string{
+		"hola": "hola",
+		"50%":  `50\%`,
+		"a_b":  `a\_b`,
+		`x\y`:  `x\\y`,
+	}
+	for in, want := range cases {
+		if got := escapeLike(in); got != want {
+			t.Errorf("escapeLike(%q) = %q, want %q", in, got, want)
+		}
 	}
 }
 

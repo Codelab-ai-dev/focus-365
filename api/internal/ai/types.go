@@ -38,3 +38,27 @@ type Message struct {
 	Actions   []ActionView `json:"actions,omitempty"`
 	CreatedAt time.Time    `json:"created_at"`
 }
+
+// ThreadHitView es un hilo cuyo título coincidió en la búsqueda.
+type ThreadHitView struct {
+	ID        string    `json:"id"`
+	Title     string    `json:"title"`
+	Preview   string    `json:"preview"`
+	UpdatedAt time.Time `json:"updated_at"`
+}
+
+// MessageHitView es un mensaje cuyo contenido coincidió en la búsqueda.
+type MessageHitView struct {
+	ID          string    `json:"id"`
+	ThreadID    string    `json:"thread_id"`
+	ThreadTitle string    `json:"thread_title"`
+	Role        string    `json:"role"`
+	Content     string    `json:"content"`
+	CreatedAt   time.Time `json:"created_at"`
+}
+
+// SearchResults agrupa los dos tipos de coincidencia.
+type SearchResults struct {
+	Threads  []ThreadHitView  `json:"threads"`
+	Messages []MessageHitView `json:"messages"`
+}

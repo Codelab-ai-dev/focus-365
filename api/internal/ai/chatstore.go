@@ -151,3 +151,11 @@ func (s *pgChatStore) CreateUploadActions(ctx context.Context, userID uuid.UUID,
 func (s *pgChatStore) ListPendingUploadActions(ctx context.Context, userID uuid.UUID) ([]store.AiAction, error) {
 	return s.q.ListPendingUploadActions(ctx, userID)
 }
+
+func (s *pgChatStore) SearchThreadsByTitle(ctx context.Context, userID uuid.UUID, term string, limit int32) ([]store.SearchThreadsByTitleRow, error) {
+	return s.q.SearchThreadsByTitle(ctx, store.SearchThreadsByTitleParams{UserID: userID, Term: term, Lim: limit})
+}
+
+func (s *pgChatStore) SearchMessages(ctx context.Context, userID uuid.UUID, term string, limit int32) ([]store.SearchMessagesRow, error) {
+	return s.q.SearchMessages(ctx, store.SearchMessagesParams{UserID: userID, Term: term, Lim: limit})
+}

@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, afterEach } from "vitest";
-import { getInsight, getThreads, getThreadMessages, renameThread, deleteThread, sendMessageStream, confirmAction, cancelAction, undoAction, importFile, getPendingUploads, type Insight, type Action } from "./ai";
+import { getInsight, getThreads, getThreadMessages, renameThread, deleteThread, sendMessageStream, confirmAction, cancelAction, undoAction, importFile, getPendingUploads, searchChat, type Insight, type Action } from "./ai";
 import { ApiError } from "./api";
 
 function okJson(data: unknown) {
@@ -296,5 +296,32 @@ describe("deleteThread", () => {
     const opts = fetchMock.mock.calls[0][1] as RequestInit;
     expect(opts.method).toBe("DELETE");
     expect(String(fetchMock.mock.calls[0][0])).toContain("/api/v1/ai/threads/t1");
+  });
+});
+
+describe("searchChat", () => {
+  afterEach(() => vi.restoreAllMocks());
+
+  it("searchChat pega a /ai/search con el término y devuelve threads+messages", async () => {
+    const fetchMock = vi.fn((_url: string, _opts?: RequestInit) =>
+      okJson({
+        threads: [{ id: "t1", title: "Finanzas", preview: "hola", updated_at: "" }],
+        messages: [{ id: "m1", thread_id: "t1", thread_title: "Finanzas", role: "user", content: "gasté", created_at: "" }],
+      })
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    const res = await searchChat("gaste");
+    expect(res.threads).toHaveLength(1);
+    expect(res.messages).toHaveLength(1);
+    const url = String(fetchMock.mock.calls[0][0]);
+    expect(url).toContain("/api/v1/ai/search?q=gaste");
+  });
+
+  it("searchChat urlencodea el término", async () => {
+    const fetchMock = vi.fn((_url: string, _opts?: RequestInit) => okJson({ threads: [], messages: [] }));
+    vi.stubGlobal("fetch", fetchMock);
+    await searchChat("50% más");
+    const url = String(fetchMock.mock.calls[0][0]);
+    expect(url).toContain("q=50%25%20m%C3%A1s");
   });
 });

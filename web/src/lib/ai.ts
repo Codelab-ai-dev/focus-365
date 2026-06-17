@@ -105,6 +105,28 @@ export function undoAction(id: string): Promise<Action> {
   }).then((r) => r.action);
 }
 
+export type ThreadHit = {
+  id: string;
+  title: string;
+  preview: string;
+  updated_at: string;
+};
+
+export type MessageHit = {
+  id: string;
+  thread_id: string;
+  thread_title: string;
+  role: string;
+  content: string;
+  created_at: string;
+};
+
+export type SearchResults = { threads: ThreadHit[]; messages: MessageHit[] };
+
+export function searchChat(q: string): Promise<SearchResults> {
+  return apiFetch<SearchResults>(`/api/v1/ai/search?q=${encodeURIComponent(q)}`);
+}
+
 // sendMessageStream envía el mensaje al endpoint SSE y entrega los deltas vía
 // onDelta a medida que llegan. Resuelve con el reply persistido y el threadId
 // (evento done) o rechaza con ApiError (HTTP no-ok, evento error, o stream

@@ -27,6 +27,21 @@ const chatHistoryLimit = 10
 // maxThreadTitle es el largo máximo del título autogenerado/renombrado (runes).
 const maxThreadTitle = 60
 
+const (
+	searchThreadLimit  = 20
+	searchMessageLimit = 50
+	minSearchLen       = 2
+)
+
+// escapeLike escapa los comodines de LIKE para que el término se busque
+// literalmente (\, %, _). Postgres usa \ como carácter de escape por defecto.
+func escapeLike(s string) string {
+	s = strings.ReplaceAll(s, `\`, `\\`)
+	s = strings.ReplaceAll(s, `%`, `\%`)
+	s = strings.ReplaceAll(s, `_`, `\_`)
+	return s
+}
+
 // deriveTitle arma el título de un hilo nuevo a partir del primer mensaje:
 // recorta espacios y limita a maxThreadTitle runes. Si queda vacío, "Nuevo hilo".
 func deriveTitle(text string) string {
@@ -71,6 +86,10 @@ type messageStore interface {
 	ListActionsByMessages(ctx context.Context, messageIDs []uuid.UUID) ([]store.AiAction, error)
 	GetAction(ctx context.Context, id, userID uuid.UUID) (store.AiAction, error)
 	SetActionStatusFrom(ctx context.Context, id, userID uuid.UUID, to string, result []byte, from string) (store.AiAction, error)
+
+	// Búsqueda
+	SearchThreadsByTitle(ctx context.Context, userID uuid.UUID, term string, limit int32) ([]store.SearchThreadsByTitleRow, error)
+	SearchMessages(ctx context.Context, userID uuid.UUID, term string, limit int32) ([]store.SearchMessagesRow, error)
 }
 
 // contextBuilder abstrae el armado del contexto (lo implementa chatContextBuilder).
@@ -277,6 +296,36 @@ func (s *ChatService) SendStream(ctx context.Context, userID uuid.UUID, threadID
 		v.Actions = append(v.Actions, toActionView(a))
 	}
 	return &v, tid, nil
+}
+
+// Search busca en los hilos (por título) y mensajes (por contenido) del usuario,
+// insensible a acentos/mayúsculas. El término ya viene validado (≥minSearchLen).
+func (s *ChatService) Search(ctx context.Context, userID uuid.UUID, query string) (*SearchResults, error) {
+	term := escapeLike(query)
+	threadRows, err := s.store.SearchThreadsByTitle(ctx, userID, term, searchThreadLimit)
+	if err != nil {
+		return nil, err
+	}
+	msgRows, err := s.store.SearchMessages(ctx, userID, term, searchMessageLimit)
+	if err != nil {
+		return nil, err
+	}
+	out := &SearchResults{
+		Threads:  make([]ThreadHitView, 0, len(threadRows)),
+		Messages: make([]MessageHitView, 0, len(msgRows)),
+	}
+	for _, t := range threadRows {
+		out.Threads = append(out.Threads, ThreadHitView{
+			ID: t.ID.String(), Title: t.Title, Preview: t.Preview, UpdatedAt: t.UpdatedAt,
+		})
+	}
+	for _, m := range msgRows {
+		out.Messages = append(out.Messages, MessageHitView{
+			ID: m.ID.String(), ThreadID: m.ThreadID.String(), ThreadTitle: m.ThreadTitle,
+			Role: m.Role, Content: m.Content, CreatedAt: m.CreatedAt,
+		})
+	}
+	return out, nil
 }
 
 // buildHistory toma la cola del historial (últimos chatHistoryLimit) y agrega el

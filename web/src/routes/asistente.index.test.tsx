@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, afterEach } from "vitest";
 import { render, screen } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import {
   RouterProvider,
@@ -22,9 +23,10 @@ vi.mock("@/lib/auth", () => ({
 
 vi.mock("@/lib/ai", () => ({
   getThreads: vi.fn(),
+  searchChat: vi.fn(),
 }));
 
-import { getThreads } from "@/lib/ai";
+import { getThreads, searchChat } from "@/lib/ai";
 import { Route as ListRoute } from "./asistente.index";
 
 function renderPage() {
@@ -93,5 +95,53 @@ describe("ThreadListPage", () => {
     vi.mocked(getThreads).mockResolvedValue([]);
     renderPage();
     expect(await screen.findByText(/Todavía no tenés hilos/)).toBeInTheDocument();
+  });
+
+  it("buscar (≥2 chars) muestra resultados y oculta la lista normal", async () => {
+    vi.mocked(getThreads).mockResolvedValue([
+      { id: "t1", title: "Hilo viejo", preview: "p", updated_at: "" },
+    ]);
+    vi.mocked(searchChat).mockResolvedValue({
+      threads: [{ id: "t9", title: "Finanzas", preview: "hola", updated_at: "" }],
+      messages: [
+        {
+          id: "m1",
+          thread_id: "t9",
+          thread_title: "Finanzas",
+          role: "user",
+          content: "gasté 200",
+          created_at: "",
+        },
+      ],
+    });
+    renderPage();
+    expect(await screen.findByText("Hilo viejo")).toBeInTheDocument();
+
+    const input = await screen.findByPlaceholderText("Buscar…");
+    await userEvent.type(input, "gaste");
+
+    expect((await screen.findAllByText("Finanzas")).length).toBeGreaterThan(0);
+    expect(screen.getByText(/gasté 200/)).toBeInTheDocument();
+    expect(screen.queryByText("Hilo viejo")).not.toBeInTheDocument();
+  });
+
+  it("input vacío muestra la lista de hilos normal", async () => {
+    vi.mocked(getThreads).mockResolvedValue([
+      { id: "t1", title: "Hilo viejo", preview: "p", updated_at: "" },
+    ]);
+    renderPage();
+    expect(await screen.findByText("Hilo viejo")).toBeInTheDocument();
+    expect(searchChat).not.toHaveBeenCalled();
+  });
+
+  it("búsqueda sin resultados muestra 'Sin resultados'", async () => {
+    vi.mocked(getThreads).mockResolvedValue([
+      { id: "t1", title: "Hilo viejo", preview: "p", updated_at: "" },
+    ]);
+    vi.mocked(searchChat).mockResolvedValue({ threads: [], messages: [] });
+    renderPage();
+    const input = await screen.findByPlaceholderText("Buscar…");
+    await userEvent.type(input, "zzz");
+    expect(await screen.findByText(/Sin resultados/)).toBeInTheDocument();
   });
 });

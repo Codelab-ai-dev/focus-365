@@ -73,4 +73,61 @@ describe("apiFetch", () => {
     const result = await apiFetch("/api/v1/create");
     expect(result).toBeUndefined();
   });
+
+  it("ante 401 refresca el token y reintenta una vez", async () => {
+    setAccessToken("viejo");
+    let recurso = 0;
+    const fetchMock = vi.fn((url: string, _opts?: RequestInit) => {
+      if (String(url).includes("/auth/refresh")) {
+        return Promise.resolve(
+          new Response(JSON.stringify({ access_token: "nuevo", user: { id: "u" } }), { status: 200 })
+        );
+      }
+      recurso++;
+      if (recurso === 1) {
+        return Promise.resolve(new Response(JSON.stringify({ error: "no autorizado" }), { status: 401 }));
+      }
+      return Promise.resolve(new Response(JSON.stringify({ ok: true }), { status: 200 }));
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const result = await apiFetch<{ ok: boolean }>("/api/v1/habits", { method: "POST", body: "{}" });
+    expect(result).toEqual({ ok: true });
+    expect(getAccessToken()).toBe("nuevo");
+    // hubo exactamente una llamada al refresh
+    expect(fetchMock.mock.calls.filter((c) => String(c[0]).includes("/auth/refresh"))).toHaveLength(1);
+    // el reintento al recurso llevó el token nuevo
+    const recursoCalls = fetchMock.mock.calls.filter((c) => String(c[0]).includes("/habits"));
+    expect(recursoCalls).toHaveLength(2);
+    const retryHeaders = (recursoCalls[1][1] as RequestInit).headers as Record<string, string>;
+    expect(retryHeaders["Authorization"]).toBe("Bearer nuevo");
+  });
+
+  it("no intenta refrescar ante un 401 de un endpoint de auth", async () => {
+    setAccessToken(null);
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response(JSON.stringify({ error: "credenciales inválidas" }), { status: 401 })
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(apiFetch("/api/v1/auth/login", { method: "POST", body: "{}" })).rejects.toThrowError(
+      "credenciales inválidas"
+    );
+    expect(fetchMock).toHaveBeenCalledTimes(1); // sin refresh, sin reintento
+  });
+
+  it("si el refresh falla, propaga el 401 original", async () => {
+    setAccessToken("viejo");
+    const fetchMock = vi.fn((url: string) => {
+      if (String(url).includes("/auth/refresh")) {
+        return Promise.resolve(new Response(JSON.stringify({ error: "refresh inválido" }), { status: 401 }));
+      }
+      return Promise.resolve(new Response(JSON.stringify({ error: "no autorizado" }), { status: 401 }));
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(
+      apiFetch("/api/v1/habits", { method: "POST", body: "{}" })
+    ).rejects.toMatchObject({ status: 401 });
+  });
 });

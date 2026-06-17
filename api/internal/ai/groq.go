@@ -191,6 +191,64 @@ type tcAccum struct {
 	args strings.Builder
 }
 
+const funcTagOpen = "<function="
+const funcTagClose = "</function>"
+
+// extractFunctionToolCalls rescata las llamadas a función que el modelo (Llama en
+// Groq) a veces emite como TEXTO —formato `<function=NOMBRE>{json}</function>`—
+// en lugar de por el campo estructurado tool_calls. Devuelve el contenido sin
+// esas etiquetas y las ToolCall extraídas. Solo extrae cuando el nombre no está
+// vacío y los argumentos son JSON válido; una etiqueta mal formada se deja tal
+// cual (mejor mostrar algo que romper el turno).
+func extractFunctionToolCalls(content string) (string, []ToolCall) {
+	var calls []ToolCall
+	var out strings.Builder
+	rest := content
+	for {
+		i := strings.Index(rest, funcTagOpen)
+		if i < 0 {
+			out.WriteString(rest)
+			break
+		}
+		gt := strings.Index(rest[i:], ">")
+		end := strings.Index(rest[i:], funcTagClose)
+		if gt < 0 || end < 0 || end < gt {
+			// Etiqueta incompleta o mal formada: emitir el resto sin tocar.
+			out.WriteString(rest)
+			break
+		}
+		name := strings.TrimSpace(rest[i+len(funcTagOpen) : i+gt])
+		args := strings.TrimSpace(rest[i+gt+1 : i+end])
+		after := i + end + len(funcTagClose)
+		if name != "" && json.Valid([]byte(args)) {
+			out.WriteString(rest[:i]) // texto conversacional antes de la etiqueta
+			calls = append(calls, ToolCall{Name: name, Arguments: args})
+		} else {
+			// No es una llamada válida: conservar la etiqueta entera.
+			out.WriteString(rest[:after])
+		}
+		rest = rest[after:]
+	}
+	return out.String(), calls
+}
+
+// funcTagHoldLen devuelve cuántos bytes del FINAL de s hay que retener porque
+// podrían ser el comienzo de una etiqueta `<function=` aún incompleta (para no
+// streamear una etiqueta cruda a medias). Es el sufijo más largo de s que es un
+// prefijo propio de funcTagOpen.
+func funcTagHoldLen(s string) int {
+	max := len(funcTagOpen) - 1
+	if max > len(s) {
+		max = len(s)
+	}
+	for l := max; l >= 1; l-- {
+		if strings.HasPrefix(funcTagOpen, s[len(s)-l:]) {
+			return l
+		}
+	}
+	return 0
+}
+
 // ChatStream envía el chat con "stream": true (y tools si hay) y re-emite cada
 // delta de texto vía onDelta. Devuelve el texto acumulado y, si el modelo
 // decidió llamar funciones, todos los ToolCall reensamblados ordenados por
@@ -242,6 +300,43 @@ func (c *GroqClient) ChatStream(ctx context.Context, system string, history []Ch
 	accums := map[int]*tcAccum{}
 	maxIdx := -1
 	sawDone := false
+
+	// Buffer de retención del stream: si el modelo emite una etiqueta de función
+	// como texto (`<function=...>...</function>`), no la mandamos cruda al usuario;
+	// retenemos los bytes potencialmente parte de una etiqueta y descartamos las
+	// etiquetas completas del stream en vivo (se rescatan del texto acumulado al
+	// final). force=true vacía lo que quede al cerrar el stream.
+	pending := ""
+	emitClean := func(force bool) {
+		for {
+			i := strings.Index(pending, funcTagOpen)
+			if i < 0 {
+				hold := 0
+				if !force {
+					hold = funcTagHoldLen(pending)
+				}
+				cut := len(pending) - hold
+				if cut > 0 {
+					onDelta(pending[:cut])
+				}
+				pending = pending[cut:]
+				return
+			}
+			if i > 0 {
+				onDelta(pending[:i])
+				pending = pending[i:]
+			}
+			end := strings.Index(pending, funcTagClose)
+			if end < 0 {
+				if force {
+					pending = "" // etiqueta sin cerrar al final: no emitirla cruda
+				}
+				return
+			}
+			pending = pending[end+len(funcTagClose):] // descartar la etiqueta del stream en vivo
+		}
+	}
+
 	scanner := bufio.NewScanner(res.Body)
 	scanner.Buffer(make([]byte, 0, 64*1024), 1024*1024)
 	for scanner.Scan() {
@@ -264,7 +359,8 @@ func (c *GroqClient) ChatStream(ctx context.Context, system string, history []Ch
 		delta := chunk.Choices[0].Delta
 		if delta.Content != "" {
 			full.WriteString(delta.Content)
-			onDelta(delta.Content)
+			pending += delta.Content
+			emitClean(false)
 		}
 		for _, tc := range delta.ToolCalls {
 			a, ok := accums[tc.Index]
@@ -281,6 +377,7 @@ func (c *GroqClient) ChatStream(ctx context.Context, system string, history []Ch
 			a.args.WriteString(tc.Function.Arguments)
 		}
 	}
+	emitClean(true) // vaciar lo retenido al cerrar el stream
 	if err := scanner.Err(); err != nil {
 		return "", nil, err
 	}
@@ -293,15 +390,25 @@ func (c *GroqClient) ChatStream(ctx context.Context, system string, history []Ch
 			calls = append(calls, ToolCall{Name: a.name, Arguments: a.args.String()})
 		}
 	}
+	content := full.String()
+	// Fallback: si no hubo tool_calls estructurados, el modelo pudo emitir la
+	// llamada como texto (`<function=...>`). La rescatamos y limpiamos el texto.
+	if len(calls) == 0 {
+		cleaned, textCalls := extractFunctionToolCalls(content)
+		if len(textCalls) > 0 {
+			content = cleaned
+			calls = textCalls
+		}
+	}
 	if len(calls) > 0 {
-		return full.String(), calls, nil
+		return content, calls, nil
 	}
 	// Una respuesta vacía con [DONE] se trata como fallo a propósito: persistir
 	// un mensaje de asistente vacío no le sirve de nada al usuario.
-	if full.Len() == 0 {
+	if content == "" {
 		return "", nil, fmt.Errorf("groq stream sin contenido")
 	}
-	return full.String(), nil, nil
+	return content, nil, nil
 }
 
 // --- Tipos para mensajes de visión (content array) ---

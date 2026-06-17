@@ -35,6 +35,8 @@ func Routes(svc *Service) http.Handler {
 	r.Get("/workouts", handleListWorkouts(svc))
 	r.Get("/workouts/{id}", handleGetWorkout(svc))
 	r.Delete("/workouts/{id}", handleDeleteWorkout(svc))
+	r.Get("/profile", handleGetProfile(svc))
+	r.Put("/profile", handleSaveProfile(svc))
 	return r
 }
 
@@ -170,6 +172,74 @@ func handleDeleteWorkout(svc *Service) http.HandlerFunc {
 			return
 		}
 		w.WriteHeader(http.StatusNoContent)
+	}
+}
+
+type profileReq struct {
+	Birthdate   *string  `json:"birthdate"`
+	Sex         *string  `json:"sex" validate:"omitempty,oneof=masculino femenino otro"`
+	HeightCm    *int32   `json:"height_cm" validate:"omitempty,min=1"`
+	WeightGrams *int32   `json:"weight_grams" validate:"omitempty,min=1"`
+	Objective   *string  `json:"objective" validate:"omitempty,oneof=perder_grasa hipertrofia fuerza resistencia salud"`
+	Location    *string  `json:"location" validate:"omitempty,oneof=casa gym ambos"`
+	Level       *string  `json:"level" validate:"omitempty,oneof=principiante intermedio avanzado"`
+	WeeklyDays  *int32   `json:"weekly_days" validate:"omitempty,min=1,max=7"`
+	Equipment   []string `json:"equipment" validate:"omitempty,dive,oneof=peso_corporal mancuernas barra banco bandas kettlebell dominadas gym"`
+	Limitations *string  `json:"limitations"`
+}
+
+func handleGetProfile(svc *Service) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		userID, ok := auth.UserIDFromContext(r.Context())
+		if !ok {
+			httpx.WriteErr(w, http.StatusUnauthorized, "no autorizado")
+			return
+		}
+		p, err := svc.Profile(r.Context(), userID)
+		if err != nil {
+			httpx.WriteErr(w, http.StatusInternalServerError, "error interno")
+			return
+		}
+		// p puede ser nil -> se serializa como null (200).
+		httpx.WriteJSON(w, http.StatusOK, p)
+	}
+}
+
+func handleSaveProfile(svc *Service) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		userID, ok := auth.UserIDFromContext(r.Context())
+		if !ok {
+			httpx.WriteErr(w, http.StatusUnauthorized, "no autorizado")
+			return
+		}
+		var req profileReq
+		if !httpx.DecodeAndValidate(w, r, &req) {
+			return
+		}
+		var birthdate *time.Time
+		if req.Birthdate != nil && *req.Birthdate != "" {
+			d, err := time.Parse(profileDateLayout, *req.Birthdate)
+			if err != nil {
+				httpx.WriteErr(w, http.StatusBadRequest, "la fecha de nacimiento no tiene un formato válido (YYYY-MM-DD)")
+				return
+			}
+			birthdate = &d
+		}
+		limitations := ""
+		if req.Limitations != nil {
+			limitations = *req.Limitations
+		}
+		out, err := svc.SaveProfile(r.Context(), userID, ProfileInput{
+			Birthdate: birthdate, Sex: req.Sex, HeightCm: req.HeightCm,
+			WeightGrams: req.WeightGrams, Objective: req.Objective, Location: req.Location,
+			Level: req.Level, WeeklyDays: req.WeeklyDays, Equipment: req.Equipment,
+			Limitations: limitations,
+		})
+		if err != nil {
+			httpx.WriteErr(w, http.StatusInternalServerError, "error interno")
+			return
+		}
+		httpx.WriteJSON(w, http.StatusOK, out)
 	}
 }
 

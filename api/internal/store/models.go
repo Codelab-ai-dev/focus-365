@@ -85,6 +85,21 @@ type Exercise struct {
 	CreatedAt time.Time `json:"created_at"`
 }
 
+type FitnessProfile struct {
+	UserID      uuid.UUID  `json:"user_id"`
+	Birthdate   *time.Time `json:"birthdate"`
+	Sex         *string    `json:"sex"`
+	HeightCm    *int32     `json:"height_cm"`
+	WeightGrams *int32     `json:"weight_grams"`
+	Objective   *string    `json:"objective"`
+	Location    *string    `json:"location"`
+	Level       *string    `json:"level"`
+	WeeklyDays  *int32     `json:"weekly_days"`
+	Equipment   []string   `json:"equipment"`
+	Limitations string     `json:"limitations"`
+	UpdatedAt   time.Time  `json:"updated_at"`
+}
+
 type Goal struct {
 	ID        uuid.UUID  `json:"id"`
 	UserID    uuid.UUID  `json:"user_id"`

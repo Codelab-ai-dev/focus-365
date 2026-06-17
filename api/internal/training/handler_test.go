@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/focus365/api/internal/auth"
@@ -198,5 +199,72 @@ func TestUserIsolation(t *testing.T) {
 	}
 	if rec := do(t, e.h, http.MethodDelete, "/training/workouts/"+idA, tokB, nil); rec.Code != http.StatusNotFound {
 		t.Errorf("B borró la sesión de A: code = %d, want 404", rec.Code)
+	}
+}
+
+func TestProfileGetEmptyThenSave(t *testing.T) {
+	e := newEnv(t)
+	tok := e.token(t, "prof@b.com")
+
+	// sin perfil -> 200 null
+	rec := do(t, e.h, http.MethodGet, "/training/profile", tok, nil)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("GET vacío code = %d", rec.Code)
+	}
+	if body := strings.TrimSpace(rec.Body.String()); body != "null" {
+		t.Fatalf("GET vacío body = %q, want null", body)
+	}
+
+	// guardar
+	rec = do(t, e.h, http.MethodPut, "/training/profile", tok, map[string]any{
+		"sex": "masculino", "height_cm": 178, "weight_grams": 80500,
+		"objective": "hipertrofia", "location": "casa", "level": "intermedio",
+		"weekly_days": 4, "equipment": []string{"mancuernas", "bandas"},
+		"limitations": "cuido la rodilla", "birthdate": "1990-05-01",
+	})
+	if rec.Code != http.StatusOK {
+		t.Fatalf("PUT code = %d, body=%s", rec.Code, rec.Body.String())
+	}
+	var p map[string]any
+	_ = json.Unmarshal(rec.Body.Bytes(), &p)
+	if p["objective"] != "hipertrofia" || p["birthdate"] != "1990-05-01" {
+		t.Fatalf("perfil guardado = %+v", p)
+	}
+
+	// GET ahora devuelve el perfil
+	rec = do(t, e.h, http.MethodGet, "/training/profile", tok, nil)
+	_ = json.Unmarshal(rec.Body.Bytes(), &p)
+	if p["weight_grams"].(float64) != 80500 {
+		t.Fatalf("weight_grams = %v", p["weight_grams"])
+	}
+}
+
+func TestProfileValidation(t *testing.T) {
+	e := newEnv(t)
+	tok := e.token(t, "profval@b.com")
+	cases := []map[string]any{
+		{"sex": "x"},                         // enum inválido
+		{"weekly_days": 8},                    // fuera de rango
+		{"weight_grams": -1},                  // negativo
+		{"objective": "ganar"},                // enum inválido
+		{"equipment": []string{"cohete"}},     // item inválido
+		{"birthdate": "01/05/1990"},           // fecha mal formada
+	}
+	for i, c := range cases {
+		rec := do(t, e.h, http.MethodPut, "/training/profile", tok, c)
+		if rec.Code != http.StatusBadRequest {
+			t.Errorf("caso %d (%v): code = %d, want 400", i, c, rec.Code)
+		}
+	}
+}
+
+func TestProfileIsolation(t *testing.T) {
+	e := newEnv(t)
+	a := e.token(t, "pa@b.com")
+	b := e.token(t, "pb@b.com")
+	do(t, e.h, http.MethodPut, "/training/profile", a, map[string]any{"objective": "fuerza"})
+	rec := do(t, e.h, http.MethodGet, "/training/profile", b, nil)
+	if strings.TrimSpace(rec.Body.String()) != "null" {
+		t.Fatalf("el usuario B vio un perfil ajeno: %s", rec.Body.String())
 	}
 }

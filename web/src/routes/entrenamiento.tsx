@@ -13,6 +13,8 @@ import {
   type Exercise,
   type Workout,
 } from "@/lib/training";
+import { Modal } from "@/ui/Modal";
+import { getProfile, saveProfile, type FitnessProfile } from "@/lib/fitnessProfile";
 import { PageTransition } from "@/ui/PageTransition";
 import { Card } from "@/ui/Card";
 import { Button } from "@/ui/Button";
@@ -53,6 +55,7 @@ function EntrenamientoPage() {
   const [note, setNote] = useState("");
   const [rows, setRows] = useState<SetRow[]>([emptyRow()]);
   const [error, setError] = useState<string | null>(null);
+  const [profileOpen, setProfileOpen] = useState(false);
 
   function invalidate() {
     qc.invalidateQueries({ queryKey: ["training"] });
@@ -99,12 +102,22 @@ function EntrenamientoPage() {
       <div className="mx-auto max-w-3xl p-6">
         <header className="flex items-center justify-between">
           <h1 className="font-display text-xl font-bold tracking-tight">Entrenamiento</h1>
-          <Link
-            to="/"
-            className="font-bold text-ink underline decoration-accent decoration-2 underline-offset-2 text-sm"
-          >
-            Volver
-          </Link>
+          <div className="flex items-center gap-3">
+            <Button
+              type="button"
+              variant="ghost"
+              onClick={() => setProfileOpen(true)}
+              className="px-3 py-1 text-xs"
+            >
+              Mi perfil
+            </Button>
+            <Link
+              to="/"
+              className="font-bold text-ink underline decoration-accent decoration-2 underline-offset-2 text-sm"
+            >
+              Volver
+            </Link>
+          </div>
         </header>
 
         <Card className="mt-6 p-6">
@@ -263,7 +276,203 @@ function EntrenamientoPage() {
             <p className="mt-3 text-sm text-muted">Aún no hay sesiones.</p>
           )}
         </section>
+
+        <ProfileModal open={profileOpen} onClose={() => setProfileOpen(false)} />
       </div>
     </PageTransition>
+  );
+}
+
+const SEXES = [
+  { value: "masculino", label: "Masculino" },
+  { value: "femenino", label: "Femenino" },
+  { value: "otro", label: "Otro" },
+];
+const OBJECTIVES = [
+  { value: "perder_grasa", label: "Perder grasa" },
+  { value: "hipertrofia", label: "Hipertrofia" },
+  { value: "fuerza", label: "Fuerza" },
+  { value: "resistencia", label: "Resistencia" },
+  { value: "salud", label: "Salud general" },
+];
+const LOCATIONS = [
+  { value: "casa", label: "Casa" },
+  { value: "gym", label: "Gimnasio" },
+  { value: "ambos", label: "Ambos" },
+];
+const LEVELS = [
+  { value: "principiante", label: "Principiante" },
+  { value: "intermedio", label: "Intermedio" },
+  { value: "avanzado", label: "Avanzado" },
+];
+const EQUIPMENT = [
+  { value: "peso_corporal", label: "Peso corporal" },
+  { value: "mancuernas", label: "Mancuernas" },
+  { value: "barra", label: "Barra" },
+  { value: "banco", label: "Banco" },
+  { value: "bandas", label: "Bandas" },
+  { value: "kettlebell", label: "Kettlebell" },
+  { value: "dominadas", label: "Barra de dominadas" },
+  { value: "gym", label: "Gimnasio completo" },
+];
+
+function ProfileModal({ open, onClose }: { open: boolean; onClose: () => void }) {
+  const qc = useQueryClient();
+  const profileQuery = useQuery<FitnessProfile | null>({
+    queryKey: ["fitness-profile"],
+    queryFn: getProfile,
+    enabled: open,
+  });
+
+  const [birthdate, setBirthdate] = useState("");
+  const [sex, setSex] = useState("");
+  const [heightCm, setHeightCm] = useState("");
+  const [weightKg, setWeightKg] = useState("");
+  const [objective, setObjective] = useState("");
+  const [location, setLocation] = useState("");
+  const [level, setLevel] = useState("");
+  const [weeklyDays, setWeeklyDays] = useState("");
+  const [equipment, setEquipment] = useState<string[]>([]);
+  const [limitations, setLimitations] = useState("");
+  const [error, setError] = useState<string | null>(null);
+
+  // Precarga el form cuando llega el perfil (o lo deja en blanco si es null).
+  useEffect(() => {
+    if (!open) return;
+    const p = profileQuery.data;
+    setBirthdate(p?.birthdate ?? "");
+    setSex(p?.sex ?? "");
+    setHeightCm(p?.height_cm != null ? String(p.height_cm) : "");
+    setWeightKg(p?.weight_grams != null ? String(gramsToKg(p.weight_grams)) : "");
+    setObjective(p?.objective ?? "");
+    setLocation(p?.location ?? "");
+    setLevel(p?.level ?? "");
+    setWeeklyDays(p?.weekly_days != null ? String(p.weekly_days) : "");
+    setEquipment(p?.equipment ?? []);
+    setLimitations(p?.limitations ?? "");
+  }, [open, profileQuery.data]);
+
+  const saveMutation = useMutation({
+    mutationFn: () =>
+      saveProfile({
+        birthdate: birthdate || null,
+        sex: sex || null,
+        height_cm: heightCm ? Number(heightCm) : null,
+        weight_grams: weightKg ? kgToGrams(Number(weightKg)) : null,
+        objective: objective || null,
+        location: location || null,
+        level: level || null,
+        weekly_days: weeklyDays ? Number(weeklyDays) : null,
+        equipment,
+        limitations,
+      }),
+    onSuccess: () => {
+      setError(null);
+      qc.invalidateQueries({ queryKey: ["fitness-profile"] });
+      onClose();
+    },
+    onError: (e) => setError(e instanceof Error ? e.message : "No se pudo guardar"),
+  });
+
+  const toggleEquip = (v: string) =>
+    setEquipment((prev) => (prev.includes(v) ? prev.filter((x) => x !== v) : [...prev, v]));
+
+  const selectCls = "w-full rounded-lg border-2 border-ink bg-surface px-2 py-1";
+
+  return (
+    <Modal open={open} onClose={onClose} title="Mi perfil">
+      <form
+        onSubmit={(e) => {
+          e.preventDefault();
+          saveMutation.mutate();
+        }}
+        className="space-y-3 text-sm"
+      >
+        <label className="block space-y-1">
+          <span className="text-xs font-bold text-muted">Fecha de nacimiento</span>
+          <input type="date" aria-label="Fecha de nacimiento" value={birthdate}
+            onChange={(e) => setBirthdate(e.target.value)} className={selectCls} />
+        </label>
+
+        <label className="block space-y-1">
+          <span className="text-xs font-bold text-muted">Sexo</span>
+          <select aria-label="Sexo" value={sex} onChange={(e) => setSex(e.target.value)} className={selectCls}>
+            <option value="">—</option>
+            {SEXES.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+          </select>
+        </label>
+
+        <div className="flex gap-2">
+          <label className="block flex-1 space-y-1">
+            <span className="text-xs font-bold text-muted">Altura (cm)</span>
+            <input type="number" aria-label="Altura (cm)" value={heightCm} min={1}
+              onChange={(e) => setHeightCm(e.target.value)} className={selectCls} />
+          </label>
+          <label className="block flex-1 space-y-1">
+            <span className="text-xs font-bold text-muted">Peso (kg)</span>
+            <input type="number" aria-label="Peso (kg)" value={weightKg} min={1} step={0.1}
+              onChange={(e) => setWeightKg(e.target.value)} className={selectCls} />
+          </label>
+        </div>
+
+        <label className="block space-y-1">
+          <span className="text-xs font-bold text-muted">Objetivo</span>
+          <select aria-label="Objetivo" value={objective} onChange={(e) => setObjective(e.target.value)} className={selectCls}>
+            <option value="">—</option>
+            {OBJECTIVES.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+          </select>
+        </label>
+
+        <div className="flex gap-2">
+          <label className="block flex-1 space-y-1">
+            <span className="text-xs font-bold text-muted">Lugar</span>
+            <select aria-label="Lugar" value={location} onChange={(e) => setLocation(e.target.value)} className={selectCls}>
+              <option value="">—</option>
+              {LOCATIONS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+            </select>
+          </label>
+          <label className="block flex-1 space-y-1">
+            <span className="text-xs font-bold text-muted">Nivel</span>
+            <select aria-label="Nivel" value={level} onChange={(e) => setLevel(e.target.value)} className={selectCls}>
+              <option value="">—</option>
+              {LEVELS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+            </select>
+          </label>
+        </div>
+
+        <label className="block space-y-1">
+          <span className="text-xs font-bold text-muted">Días por semana</span>
+          <input type="number" aria-label="Días por semana" value={weeklyDays} min={1} max={7}
+            onChange={(e) => setWeeklyDays(e.target.value)} className={selectCls} />
+        </label>
+
+        <fieldset className="space-y-1">
+          <legend className="text-xs font-bold text-muted">Equipo</legend>
+          <div className="flex flex-wrap gap-2">
+            {EQUIPMENT.map((o) => (
+              <button key={o.value} type="button" onClick={() => toggleEquip(o.value)}
+                aria-pressed={equipment.includes(o.value)}
+                className={`rounded-lg border-2 border-ink px-2 py-1 text-xs font-bold shadow-brutal-sm ${equipment.includes(o.value) ? "bg-accent" : "bg-surface"}`}>
+                {o.label}
+              </button>
+            ))}
+          </div>
+        </fieldset>
+
+        <label className="block space-y-1">
+          <span className="text-xs font-bold text-muted">Lesiones / limitaciones</span>
+          <textarea aria-label="Lesiones o limitaciones" value={limitations} rows={2}
+            onChange={(e) => setLimitations(e.target.value)} className={selectCls} />
+        </label>
+
+        {error && (
+          <p className="rounded-md border-2 border-ink bg-danger-bg px-3 py-2 text-xs font-bold text-danger-fg shadow-brutal-sm">{error}</p>
+        )}
+
+        <Button type="submit" disabled={saveMutation.isPending} className="w-full">
+          {saveMutation.isPending ? "Guardando…" : "Guardar"}
+        </Button>
+      </form>
+    </Modal>
   );
 }

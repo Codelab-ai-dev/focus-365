@@ -96,7 +96,7 @@ func newEnv(t *testing.T, hasKey bool, comp *fakeCompleter) *env {
 
 	ci := checkin.NewService(q)
 	fi := finance.NewService(q)
-	tr := training.NewService(q, pool)
+	tr := training.NewService(q, pool, nil, false)
 	ha := habits.NewService(q)
 	go_ := goals.NewService(q)
 	co := commitments.NewService(q, pool)

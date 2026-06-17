@@ -16,12 +16,28 @@ import (
 	"github.com/go-chi/chi/v5"
 )
 
+type fakeCompleter struct {
+	out        string
+	err        error
+	lastSystem string
+	lastUser   string
+}
+
+func (f *fakeCompleter) Complete(ctx context.Context, system, user string) (string, error) {
+	f.lastSystem, f.lastUser = system, user
+	return f.out, f.err
+}
+
 type env struct {
 	h    http.Handler
 	auth *auth.Service
 }
 
 func newEnv(t *testing.T) *env {
+	return newEnvWith(t, &fakeCompleter{out: "rutina sugerida"}, true)
+}
+
+func newEnvWith(t *testing.T, c *fakeCompleter, hasKey bool) *env {
 	t.Helper()
 	pool := testutil.NewDB(t)
 	q := store.New(pool)
@@ -29,7 +45,7 @@ func newEnv(t *testing.T) *env {
 	r := chi.NewRouter()
 	r.Group(func(r chi.Router) {
 		r.Use(auth.RequireAuth(tm))
-		r.Mount("/training", training.Routes(training.NewService(q, pool)))
+		r.Mount("/training", training.Routes(training.NewService(q, pool, c, hasKey)))
 	})
 	return &env{h: r, auth: auth.NewService(q, tm)}
 }

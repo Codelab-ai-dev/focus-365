@@ -13,14 +13,18 @@ import (
 )
 
 type Service struct {
-	q    *store.Queries
-	pool *pgxpool.Pool
+	q      *store.Queries
+	pool   *pgxpool.Pool
+	groq   completer
+	hasKey bool
 }
 
 // NewService recibe el pool además de las queries: CreateWorkout abre una
 // transacción para insertar la sesión y todas sus series de forma atómica.
-func NewService(q *store.Queries, pool *pgxpool.Pool) *Service {
-	return &Service{q: q, pool: pool}
+// También recibe el cliente de Groq (para las sugerencias del entrenador) y si
+// hay clave configurada. completer está definido en suggestion.go.
+func NewService(q *store.Queries, pool *pgxpool.Pool, groq completer, hasKey bool) *Service {
+	return &Service{q: q, pool: pool, groq: groq, hasKey: hasKey}
 }
 
 func (s *Service) ListExercises(ctx context.Context, userID uuid.UUID) ([]Exercise, error) {

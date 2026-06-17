@@ -2,8 +2,11 @@ package goals
 
 import (
 	"encoding/json"
+	"errors"
 	"net/http"
+	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/focus365/api/internal/auth"
 	"github.com/focus365/api/internal/httpx"
@@ -31,6 +34,9 @@ func Routes(svc *Service) http.Handler {
 	r.Post("/", handleCreate(svc))
 	r.Patch("/{id}", handlePatch(svc))
 	r.Delete("/{id}", handleDelete(svc))
+	r.Get("/{id}/notes", handleListNotes(svc))
+	r.Post("/{id}/notes", handleCreateNote(svc))
+	r.Delete("/{id}/notes/{noteId}", handleDeleteNote(svc))
 	return r
 }
 
@@ -155,6 +161,114 @@ func handleDelete(svc *Service) http.HandlerFunc {
 		}
 		if !deleted {
 			httpx.WriteErr(w, http.StatusNotFound, "no encontrado")
+			return
+		}
+		w.WriteHeader(http.StatusNoContent)
+	}
+}
+
+const maxNoteChars = 1000
+
+type noteReq struct {
+	NoteDate string `json:"note_date" validate:"required"`
+	Body     string `json:"body" validate:"required"`
+}
+
+type notesResponse struct {
+	Notes []Note `json:"notes"`
+}
+
+type noteResponse struct {
+	Note Note `json:"note"`
+}
+
+func handleListNotes(svc *Service) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		userID, ok := auth.UserIDFromContext(r.Context())
+		if !ok {
+			httpx.WriteErr(w, http.StatusUnauthorized, "no autorizado")
+			return
+		}
+		goalID, err := uuid.Parse(chi.URLParam(r, "id"))
+		if err != nil {
+			httpx.WriteErr(w, http.StatusNotFound, "meta no encontrada")
+			return
+		}
+		notes, err := svc.Notes(r.Context(), userID, goalID)
+		if err != nil {
+			httpx.WriteErr(w, http.StatusInternalServerError, "error interno")
+			return
+		}
+		httpx.WriteJSON(w, http.StatusOK, notesResponse{Notes: notes})
+	}
+}
+
+func handleCreateNote(svc *Service) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		userID, ok := auth.UserIDFromContext(r.Context())
+		if !ok {
+			httpx.WriteErr(w, http.StatusUnauthorized, "no autorizado")
+			return
+		}
+		goalID, err := uuid.Parse(chi.URLParam(r, "id"))
+		if err != nil {
+			httpx.WriteErr(w, http.StatusNotFound, "meta no encontrada")
+			return
+		}
+		var req noteReq
+		if !httpx.DecodeAndValidate(w, r, &req) {
+			return
+		}
+		body := strings.TrimSpace(req.Body)
+		if body == "" {
+			httpx.WriteErr(w, http.StatusBadRequest, "la nota no puede estar vacía")
+			return
+		}
+		if utf8.RuneCountInString(body) > maxNoteChars {
+			httpx.WriteErr(w, http.StatusBadRequest, "la nota es demasiado larga")
+			return
+		}
+		noteDate, err := time.Parse(dateLayout, req.NoteDate)
+		if err != nil {
+			httpx.WriteErr(w, http.StatusBadRequest, "la fecha no tiene un formato válido (YYYY-MM-DD)")
+			return
+		}
+		out, err := svc.AddNote(r.Context(), userID, goalID, noteDate, body)
+		if err != nil {
+			if errors.Is(err, ErrGoalNotFound) {
+				httpx.WriteErr(w, http.StatusNotFound, "meta no encontrada")
+				return
+			}
+			httpx.WriteErr(w, http.StatusInternalServerError, "error interno")
+			return
+		}
+		httpx.WriteJSON(w, http.StatusCreated, noteResponse{Note: *out})
+	}
+}
+
+func handleDeleteNote(svc *Service) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		userID, ok := auth.UserIDFromContext(r.Context())
+		if !ok {
+			httpx.WriteErr(w, http.StatusUnauthorized, "no autorizado")
+			return
+		}
+		if _, err := uuid.Parse(chi.URLParam(r, "id")); err != nil {
+			httpx.WriteErr(w, http.StatusNotFound, "meta no encontrada")
+			return
+		}
+		noteID, err := uuid.Parse(chi.URLParam(r, "noteId"))
+		if err != nil {
+			httpx.WriteErr(w, http.StatusNotFound, "nota no encontrada")
+			return
+		}
+		deleted, err := svc.DeleteNote(r.Context(), userID, noteID)
+		if err != nil {
+			httpx.WriteErr(w, http.StatusInternalServerError, "error interno")
+			return
+		}
+		if !deleted {
+			httpx.WriteErr(w, http.StatusNotFound, "nota no encontrada")
 			return
 		}
 		w.WriteHeader(http.StatusNoContent)

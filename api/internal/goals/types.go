@@ -1,6 +1,12 @@
 package goals
 
-import "time"
+import (
+	"errors"
+	"time"
+)
+
+// ErrGoalNotFound: la meta no existe o no es del usuario (al colgar una nota).
+var ErrGoalNotFound = errors.New("meta no encontrada")
 
 const dateLayout = "2006-01-02"
 
@@ -33,6 +39,15 @@ type GoalPatch struct {
 	Progress    *int32
 	SetDeadline bool
 	Deadline    *time.Time
+}
+
+// Note es la vista de una nota de avance. note_date va como YYYY-MM-DD.
+type Note struct {
+	ID        string    `json:"id"`
+	GoalID    string    `json:"goal_id"`
+	NoteDate  string    `json:"note_date"`
+	Body      string    `json:"body"`
+	CreatedAt time.Time `json:"created_at"`
 }
 
 // computeOverdue: una meta está vencida si está activa, tiene deadline y la

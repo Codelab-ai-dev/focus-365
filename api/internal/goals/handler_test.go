@@ -246,6 +246,75 @@ func TestDelete(t *testing.T) {
 	}
 }
 
+func TestGoalNotesHappyPath(t *testing.T) {
+	e := newEnv(t)
+	tok := e.token(t, "notes@b.com")
+	g := createGoal(t, e, tok, map[string]any{"title": "Correr", "dimension": "fisica"})
+	gid := g["id"].(string)
+
+	// crear nota
+	rec := do(t, e.h, http.MethodPost, "/goals/"+gid+"/notes", tok,
+		map[string]any{"note_date": "2026-06-17", "body": "5k hoy"})
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("POST nota code = %d, body=%s", rec.Code, rec.Body.String())
+	}
+
+	// listar
+	rec = do(t, e.h, http.MethodGet, "/goals/"+gid+"/notes", tok, nil)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("GET notas code = %d", rec.Code)
+	}
+	var body struct {
+		Notes []map[string]any `json:"notes"`
+	}
+	_ = json.Unmarshal(rec.Body.Bytes(), &body)
+	if len(body.Notes) != 1 || body.Notes[0]["note_date"] != "2026-06-17" || body.Notes[0]["body"] != "5k hoy" {
+		t.Fatalf("notas = %+v", body.Notes)
+	}
+	noteID := body.Notes[0]["id"].(string)
+
+	// borrar
+	rec = do(t, e.h, http.MethodDelete, "/goals/"+gid+"/notes/"+noteID, tok, nil)
+	if rec.Code != http.StatusNoContent {
+		t.Fatalf("DELETE nota code = %d", rec.Code)
+	}
+}
+
+func TestGoalNotesValidation(t *testing.T) {
+	e := newEnv(t)
+	tok := e.token(t, "notesval@b.com")
+	g := createGoal(t, e, tok, map[string]any{"title": "M", "dimension": "fisica"})
+	gid := g["id"].(string)
+
+	// body vacío -> 400
+	rec := do(t, e.h, http.MethodPost, "/goals/"+gid+"/notes", tok,
+		map[string]any{"note_date": "2026-06-17", "body": "   "})
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("body vacío code = %d, want 400", rec.Code)
+	}
+	// fecha inválida -> 400
+	rec = do(t, e.h, http.MethodPost, "/goals/"+gid+"/notes", tok,
+		map[string]any{"note_date": "17/06/2026", "body": "x"})
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("fecha inválida code = %d, want 400", rec.Code)
+	}
+}
+
+func TestGoalNotesForeignGoal404(t *testing.T) {
+	e := newEnv(t)
+	owner := e.token(t, "owner-n@b.com")
+	stranger := e.token(t, "stranger-n@b.com")
+	g := createGoal(t, e, owner, map[string]any{"title": "M", "dimension": "fisica"})
+	gid := g["id"].(string)
+
+	// el extraño intenta colgar una nota en la meta ajena -> 404
+	rec := do(t, e.h, http.MethodPost, "/goals/"+gid+"/notes", stranger,
+		map[string]any{"note_date": "2026-06-17", "body": "intruso"})
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("nota en meta ajena code = %d, want 404", rec.Code)
+	}
+}
+
 func TestRequiresAuth(t *testing.T) {
 	e := newEnv(t)
 	rec := do(t, e.h, http.MethodGet, "/goals", "", nil)

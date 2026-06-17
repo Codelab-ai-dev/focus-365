@@ -46,6 +46,15 @@ vi.mock("@/lib/trainingSuggestion", () => ({
   })),
 }));
 
+vi.mock("@/lib/trainingAdjustment", () => ({
+  getAdjustment: vi.fn(async () => null),
+  generateAdjustment: vi.fn(async () => ({
+    scope: "last",
+    content: "Subí 2.5 kg en sentadilla",
+    created_at: "",
+  })),
+}));
+
 import { Route as EntrenamientoRoute } from "./entrenamiento";
 import { saveProfile } from "@/lib/fitnessProfile";
 
@@ -176,6 +185,12 @@ describe("EntrenamientoPage", () => {
     renderPage();
     await userEvent.click(await screen.findByRole("button", { name: "Sugerir" }));
     expect(await screen.findByText(/Hacé sentadillas 4x8/)).toBeInTheDocument();
+  });
+
+  it("Analizar genera y muestra el análisis del agente", async () => {
+    renderPage();
+    await userEvent.click(await screen.findByRole("button", { name: "Analizar" }));
+    expect(await screen.findByText(/Subí 2.5 kg en sentadilla/)).toBeInTheDocument();
   });
 
   it("al borrar una sesión dispara un DELETE", async () => {

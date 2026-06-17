@@ -16,6 +16,7 @@ import {
 import { Modal } from "@/ui/Modal";
 import { getProfile, saveProfile, type FitnessProfile } from "@/lib/fitnessProfile";
 import { getSuggestion, generateSuggestion, type TrainingSuggestion } from "@/lib/trainingSuggestion";
+import { getAdjustment, generateAdjustment, type TrainingAdjustment } from "@/lib/trainingAdjustment";
 import { PageTransition } from "@/ui/PageTransition";
 import { Card } from "@/ui/Card";
 import { Button } from "@/ui/Button";
@@ -59,6 +60,8 @@ function EntrenamientoPage() {
   const [profileOpen, setProfileOpen] = useState(false);
   const [focus, setFocus] = useState("");
   const [suggestError, setSuggestError] = useState<string | null>(null);
+  const [adjustScope, setAdjustScope] = useState<"last" | "week">("last");
+  const [adjustError, setAdjustError] = useState<string | null>(null);
 
   function invalidate() {
     qc.invalidateQueries({ queryKey: ["training"] });
@@ -108,6 +111,21 @@ function EntrenamientoPage() {
     },
     onError: (e) =>
       setSuggestError(e instanceof Error ? e.message : "No se pudo generar la sugerencia"),
+  });
+
+  const adjustmentQuery = useQuery({
+    queryKey: ["training-adjustment"],
+    queryFn: getAdjustment,
+    enabled: !!user,
+  });
+  const adjustMutation = useMutation({
+    mutationFn: () => generateAdjustment(adjustScope),
+    onSuccess: (a) => {
+      setAdjustError(null);
+      qc.setQueryData<TrainingAdjustment | null>(["training-adjustment"], a);
+    },
+    onError: (e) =>
+      setAdjustError(e instanceof Error ? e.message : "No se pudo generar el análisis"),
   });
 
   function updateRow(i: number, patch: Partial<SetRow>) {
@@ -290,6 +308,53 @@ function EntrenamientoPage() {
           ) : (
             !suggestMutation.isPending && (
               <p className="text-sm text-muted">Pedí una sugerencia de entrenamiento.</p>
+            )
+          )}
+        </Card>
+
+        <Card className="mt-8 p-6 space-y-3">
+          <h2 className="font-display text-lg font-bold tracking-tight">Análisis del agente</h2>
+          <div className="flex flex-wrap items-center gap-2">
+            {([
+              { v: "last", label: "Último entreno" },
+              { v: "week", label: "Última semana" },
+            ] as const).map((o) => (
+              <button
+                key={o.v}
+                type="button"
+                aria-pressed={adjustScope === o.v}
+                onClick={() => setAdjustScope(o.v)}
+                className={`rounded-lg border-2 border-ink px-3 py-1 text-xs font-bold shadow-brutal-sm ${adjustScope === o.v ? "bg-accent" : "bg-surface"}`}
+              >
+                {o.label}
+              </button>
+            ))}
+            <Button
+              type="button"
+              onClick={() => adjustMutation.mutate()}
+              disabled={adjustMutation.isPending}
+              className="px-3 py-1 text-xs"
+            >
+              {adjustMutation.isPending ? "Analizando…" : "Analizar"}
+            </Button>
+          </div>
+          {adjustError && (
+            <p className="rounded-md border-2 border-ink bg-danger-bg px-3 py-2 text-xs font-bold text-danger-fg shadow-brutal-sm">
+              {adjustError}
+            </p>
+          )}
+          {adjustmentQuery.data ? (
+            <div className="rounded-lg border-2 border-ink bg-surface px-3 py-2 shadow-brutal-sm">
+              <p className="whitespace-pre-wrap text-sm">{adjustmentQuery.data.content}</p>
+              {adjustmentQuery.data.created_at && (
+                <p className="mt-2 text-[10px] uppercase tracking-[0.12em] text-muted">
+                  {adjustmentQuery.data.scope === "week" ? "última semana" : "último entreno"} · {relativeDateTraining(adjustmentQuery.data.created_at)}
+                </p>
+              )}
+            </div>
+          ) : (
+            !adjustMutation.isPending && (
+              <p className="text-sm text-muted">Pedí un análisis de tus entrenos recientes.</p>
             )
           )}
         </Card>

@@ -16,6 +16,7 @@ const dateParam = "2006-01-02"
 func Routes(svc *Service) http.Handler {
 	r := chi.NewRouter()
 	r.Get("/due", handleDue(svc))
+	r.Get("/pending", handlePending(svc))
 	r.Post("/{id}/toggle", handleToggle(svc))
 	return r
 }
@@ -39,6 +40,23 @@ func handleDue(svc *Service) http.HandlerFunc {
 			return
 		}
 		httpx.WriteJSON(w, http.StatusOK, map[string]any{"commitments": due})
+	}
+}
+
+func handlePending(svc *Service) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		userID, ok := auth.UserIDFromContext(r.Context())
+		if !ok {
+			httpx.WriteErr(w, http.StatusUnauthorized, "no autorizado")
+			return
+		}
+		today := time.Now().UTC().Truncate(24 * time.Hour)
+		pend, err := svc.Pending(r.Context(), userID, today)
+		if err != nil {
+			httpx.WriteErr(w, http.StatusInternalServerError, "error interno")
+			return
+		}
+		httpx.WriteJSON(w, http.StatusOK, map[string]any{"commitments": pend})
 	}
 }
 

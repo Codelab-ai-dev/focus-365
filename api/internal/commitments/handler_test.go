@@ -120,3 +120,36 @@ func TestRequiresAuth(t *testing.T) {
 		t.Errorf("sin token code = %d, want 401", rec.Code)
 	}
 }
+
+func TestPendingEndpoint(t *testing.T) {
+	e := newEnv(t)
+	uid, tok := e.register(t, "pending@b.com")
+	ctx := context.Background()
+	today := time.Now().UTC().Truncate(24 * time.Hour)
+	ayer := today.AddDate(0, 0, -1)
+	if err := e.svc.ReplaceForDate(ctx, uid, ayer, []string{"Vencido"}); err != nil {
+		t.Fatalf("Replace ayer: %v", err)
+	}
+	if err := e.svc.ReplaceForDate(ctx, uid, today, []string{"De hoy"}); err != nil {
+		t.Fatalf("Replace hoy: %v", err)
+	}
+
+	rec := do(t, e.h, http.MethodGet, "/commitments/pending", tok)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, esperaba 200", rec.Code)
+	}
+	var body struct {
+		Commitments []commitments.Commitment `json:"commitments"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if len(body.Commitments) != 2 || body.Commitments[0].Text != "Vencido" {
+		t.Fatalf("commitments = %+v (esperaba [Vencido, De hoy])", body.Commitments)
+	}
+
+	rec401 := do(t, e.h, http.MethodGet, "/commitments/pending", "")
+	if rec401.Code != http.StatusUnauthorized {
+		t.Fatalf("sin auth status = %d, esperaba 401", rec401.Code)
+	}
+}

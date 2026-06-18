@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512">
+  <rect width="512" height="512" fill="#ff7a3d"/>
+  <!-- F centrada, dentro de la zona segura (~64% del lienzo) -->
+  <rect x="206" y="176" width="58" height="170" fill="#16130e"/>
+  <rect x="206" y="176" width="156" height="52" fill="#16130e"/>
+  <rect x="206" y="254" width="120" height="46" fill="#16130e"/>
+</svg>

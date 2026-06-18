@@ -52,6 +52,13 @@
     outline: 2px solid var(--c-accent);
     outline-offset: 2px;
   }
+
+  /* Áreas seguras en standalone (notch/barra de gestos). No afecta al navegador
+     normal: env(safe-area-inset-*) vale 0 fuera de standalone. */
+  body {
+    padding-top: env(safe-area-inset-top);
+    padding-bottom: env(safe-area-inset-bottom);
+  }
 }
 
 /* Fuego de racha: flicker orgánico, lo único que anima en loop. */

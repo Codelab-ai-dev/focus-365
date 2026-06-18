@@ -70,13 +70,18 @@ describe("RemindersPanel", () => {
     });
   });
 
-  it("al marcar el check dispara toggle", async () => {
-    getPendingSpy.mockResolvedValue([
-      { id: "h1", target_date: TODAY, text: "De hoy", done: false },
-    ]);
+  it("al marcar el check dispara toggle y el ítem desaparece", async () => {
+    getPendingSpy
+      .mockResolvedValueOnce([
+        { id: "h1", target_date: TODAY, text: "De hoy", done: false },
+      ])
+      .mockResolvedValue([]); // tras invalidar, el refetch ya no lo trae
     renderPanel();
     const check = await screen.findByRole("checkbox", { name: /De hoy/i });
     await userEvent.click(check);
     await waitFor(() => expect(toggleSpy).toHaveBeenCalledWith("h1"));
+    await waitFor(() =>
+      expect(screen.queryByText("De hoy")).not.toBeInTheDocument()
+    );
   });
 });

@@ -73,11 +73,7 @@ function Group({
               disabled={mut.isPending && mut.variables === c.id}
               onChange={() => mut.mutate(c.id)}
             />
-            <Link
-              to="/check-in"
-              search={{ date: c.target_date }}
-              className="text-sm font-bold hover:underline"
-            >
+            <Link to="/check-in" className="text-sm font-bold hover:underline">
               {c.text}
             </Link>
           </li>

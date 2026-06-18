@@ -32,7 +32,7 @@ export function RemindersPanel() {
       {vencidos.length > 0 && (
         <Group title={`Vencidos (${vencidos.length})`} items={vencidos} danger mut={mut} />
       )}
-      {hoy.length > 0 && <Group title="Para el día" items={hoy} mut={mut} />}
+      {hoy.length > 0 && <Group title="Hoy" items={hoy} mut={mut} />}
     </div>
   );
 }

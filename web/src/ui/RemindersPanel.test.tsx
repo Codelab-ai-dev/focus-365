@@ -58,8 +58,8 @@ describe("RemindersPanel", () => {
     renderPanel();
     expect(await screen.findByText("Vencido")).toBeInTheDocument();
     expect(screen.getByText("De hoy")).toBeInTheDocument();
-    expect(screen.getByText(/Vencidos/i)).toBeInTheDocument();
-    expect(screen.getByText(/Hoy/i)).toBeInTheDocument();
+    expect(screen.getByText("Vencidos (1)")).toBeInTheDocument();
+    expect(screen.getByText("Hoy")).toBeInTheDocument();
   });
 
   it("no renderiza nada si no hay pendientes", async () => {

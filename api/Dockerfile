@@ -1,5 +1,8 @@
 # --- build ---
 FROM golang:1.23-alpine AS build
+# Usar el Go de la imagen base; nunca descargar un toolchain en el build (si un
+# dep subiera la directiva `go`, el build falla claro en vez de bajar Go).
+ENV GOTOOLCHAIN=local
 WORKDIR /src
 COPY go.mod go.sum* ./
 RUN go mod download

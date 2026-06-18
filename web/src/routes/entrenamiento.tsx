@@ -211,16 +211,16 @@ function EntrenamientoPage() {
               <span className="text-[10px] font-bold uppercase tracking-[0.12em] text-muted">Series</span>
               {rows.map((row, i) => (
                 <div key={i} className="space-y-1">
+                  {/* El nombre del ejercicio en su propia línea (ancho completo). */}
+                  <Input
+                    type="text"
+                    aria-label={`Ejercicio ${i + 1}`}
+                    list="catalogo-ejercicios"
+                    placeholder="Ejercicio"
+                    value={row.exercise}
+                    onChange={(e) => updateRow(i, { exercise: e.target.value })}
+                  />
                   <div className="flex gap-2">
-                    <Input
-                      type="text"
-                      aria-label={`Ejercicio ${i + 1}`}
-                      list="catalogo-ejercicios"
-                      placeholder="Ejercicio"
-                      value={row.exercise}
-                      onChange={(e) => updateRow(i, { exercise: e.target.value })}
-                      className="flex-1"
-                    />
                     <Input
                       type="number"
                       aria-label={`Reps ${i + 1}`}
@@ -228,7 +228,7 @@ function EntrenamientoPage() {
                       min="0"
                       value={row.reps}
                       onChange={(e) => updateRow(i, { reps: e.target.value })}
-                      className="w-20"
+                      className="flex-1"
                     />
                     <Input
                       type="number"
@@ -238,7 +238,7 @@ function EntrenamientoPage() {
                       step="0.5"
                       value={row.weightKg}
                       onChange={(e) => updateRow(i, { weightKg: e.target.value })}
-                      className="w-20"
+                      className="flex-1"
                     />
                   </div>
                   <Input

@@ -1,7 +1,7 @@
 # Bitácora de sesión — Rebanada 27: análisis/ajustes del agente (entrenamiento slice C2)
 
 **Fecha:** 2026-06-17
-**Estado al cierre:** Mergeada a `main` y pusheada. **Smoke de producción pendiente del deploy manual.**
+**Estado al cierre:** Completada, mergeada a `main` y **verificada en producción** (smoke 5/5 tras resolver un incidente de disco en el VPS).
 **Rama:** `plan-27-ajustes-agente` (mezclada `--no-ff` y borrada).
 
 ## Contexto
@@ -63,9 +63,21 @@ script de smoke.
 - Backend: build + vet limpios; `go test -p 1 ./...` verde (tests nuevos de
   store, servicio, handler y el unit del filtro).
 - Frontend: **159/159** + build OK.
-- **Smoke producción:** pendiente del deploy manual. `scripts/smoke-r27.sh`
-  cubre: GET sin análisis → null, POST scope=last genera (Groq real),
-  persistido, scope=week → 200, scope inválido → 400.
+- **Smoke producción 5/5 OK** (tras resolver el deploy): GET sin análisis → null,
+  POST scope=last genera (Groq real), persistido, scope=week → 200, scope
+  inválido → 400.
+
+## Incidente de deploy (disco lleno en el VPS)
+
+El primer Deploy de este commit **falló** en el build del api (`go build`). Se
+diagnosticó con método: el código compilaba limpio localmente con el comando
+exacto del contenedor (`CGO_ENABLED=0 GOOS=linux go build ./cmd/server`), sin
+desajuste de versión (`go.mod` 1.23 = imagen `golang:1.23-alpine`) ni
+dependencias nuevas. Causa real: **disco lleno en el VPS** tras 27 builds
+acumulados de Coolify. Se resolvió con `docker system prune -af && docker builder
+prune -af` (sin `--volumes`, para no tocar el volumen `dbdata` de Postgres) y un
+reintento. **Aprendizaje:** correr `docker system prune -af` periódicamente en el
+VPS para no llenar el disco con imágenes/cache viejas.
 
 ## Backlog restante
 

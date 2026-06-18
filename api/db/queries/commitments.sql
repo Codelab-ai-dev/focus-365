@@ -21,3 +21,8 @@ RETURNING *;
 SELECT * FROM commitments
 WHERE user_id = $1 AND target_date >= $2
 ORDER BY target_date DESC, position;
+
+-- name: ListPendingCommitments :many
+SELECT * FROM commitments
+WHERE user_id = $1 AND done = false AND target_date <= $2
+ORDER BY target_date ASC, position ASC;

@@ -55,6 +55,19 @@ func (s *Service) DueOn(ctx context.Context, userID uuid.UUID, date time.Time) (
 	return mapViews(rows), nil
 }
 
+// Pending devuelve los compromisos sin cumplir con target_date <= today
+// (vencidos + hoy), vencidos primero. Para el panel de recordatorios de la home.
+func (s *Service) Pending(ctx context.Context, userID uuid.UUID, today time.Time) ([]Commitment, error) {
+	rows, err := s.q.ListPendingCommitments(ctx, store.ListPendingCommitmentsParams{
+		UserID:     userID,
+		TargetDate: today,
+	})
+	if err != nil {
+		return nil, err
+	}
+	return mapViews(rows), nil
+}
+
 // ReplaceForDate reemplaza los compromisos del usuario para `target` (borra y
 // re-inserta, filtrando vacíos), en una transacción.
 func (s *Service) ReplaceForDate(ctx context.Context, userID uuid.UUID, target time.Time, texts []string) error {

@@ -11,6 +11,7 @@ import { Stat } from "@/ui/Stat";
 import { Button } from "@/ui/Button";
 import { PageTransition } from "@/ui/PageTransition";
 import { Reveal, RevealItem } from "@/ui/Reveal";
+import { RemindersPanel } from "@/ui/RemindersPanel";
 
 export const Route = createFileRoute("/")({ component: DashboardPage });
 
@@ -62,6 +63,8 @@ function DashboardPage() {
           Hola, <span className="font-bold text-ink">{user.name}</span> · {fecha} ·{" "}
           {s.dimensions_active} dimensiones en marcha
         </p>
+
+        <RemindersPanel />
 
         <Reveal className="mt-4 grid grid-cols-1 gap-4 sm:grid-cols-2">
           <RevealItem>

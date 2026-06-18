@@ -81,3 +81,40 @@ func TestRecent(t *testing.T) {
 		t.Errorf("recent = %+v (since 15 debe excluir el 14)", rec)
 	}
 }
+
+func TestPending(t *testing.T) {
+	svc, uid := newSvc(t)
+	ctx := context.Background()
+	today := time.Date(2026, 6, 17, 0, 0, 0, 0, time.UTC)
+	ayer := today.AddDate(0, 0, -1)
+	manana := today.AddDate(0, 0, 1)
+
+	if err := svc.ReplaceForDate(ctx, uid, ayer, []string{"Vencido"}); err != nil {
+		t.Fatalf("Replace ayer: %v", err)
+	}
+	if err := svc.ReplaceForDate(ctx, uid, today, []string{"De hoy"}); err != nil {
+		t.Fatalf("Replace hoy: %v", err)
+	}
+	if err := svc.ReplaceForDate(ctx, uid, manana, []string{"Futuro"}); err != nil {
+		t.Fatalf("Replace manana: %v", err)
+	}
+
+	pend, err := svc.Pending(ctx, uid, today)
+	if err != nil {
+		t.Fatalf("Pending: %v", err)
+	}
+	if len(pend) != 2 || pend[0].Text != "Vencido" || pend[1].Text != "De hoy" {
+		t.Fatalf("pending = %+v (esperaba [Vencido, De hoy])", pend)
+	}
+
+	if _, err := svc.Toggle(ctx, uid, uuid.MustParse(pend[0].ID)); err != nil {
+		t.Fatalf("Toggle: %v", err)
+	}
+	pend2, err := svc.Pending(ctx, uid, today)
+	if err != nil {
+		t.Fatalf("Pending 2: %v", err)
+	}
+	if len(pend2) != 1 || pend2[0].Text != "De hoy" {
+		t.Fatalf("pending2 = %+v (esperaba [De hoy])", pend2)
+	}
+}

@@ -18,11 +18,13 @@ func readTestdata(t *testing.T, name string) []byte {
 	return data
 }
 
-// fakeExtractor implementa la interfaz que usa el extractor para llamar a Groq.
+// fakeExtractClient implementa la interfaz que usa el extractor para llamar a Groq.
 type fakeExtractClient struct {
-	out      string
-	err      error
-	gotImage bool
+	out         string
+	err         error
+	gotImage    bool
+	visionCalls int
+	visionOuts  []string // si no está vacío, ExtractVision devuelve visionOuts[i] por llamada
 }
 
 func (f *fakeExtractClient) ExtractText(ctx context.Context, system, user string) (string, error) {
@@ -30,6 +32,14 @@ func (f *fakeExtractClient) ExtractText(ctx context.Context, system, user string
 }
 func (f *fakeExtractClient) ExtractVision(ctx context.Context, system, b64, mime string) (string, error) {
 	f.gotImage = true
+	i := f.visionCalls
+	f.visionCalls++
+	if f.err != nil {
+		return "", f.err
+	}
+	if i < len(f.visionOuts) {
+		return f.visionOuts[i], nil
+	}
 	return f.out, f.err
 }
 
@@ -106,5 +116,55 @@ func TestPdfEmptyIsScannedError(t *testing.T) {
 	_, err := ex.extract(context.Background(), []byte("%PDF-1.4 sin texto real"), "application/pdf", "s.pdf")
 	if err == nil {
 		t.Error("PDF ilegible/escaneado debe fallar con mensaje claro")
+	}
+}
+
+func TestExtractScannedPDFViaVision(t *testing.T) {
+	gc := &fakeExtractClient{out: `{"movimientos":[
+		{"type":"expense","amount_centavos":1200,"category":"café"}]}`}
+	ex := newExtractor(gc)
+	pdf := buildScannedPDF(t, 1)
+	res, err := ex.extract(context.Background(), pdf, "application/pdf", "scan.pdf")
+	if err != nil {
+		t.Fatalf("extract: %v", err)
+	}
+	if !gc.gotImage {
+		t.Error("no usó la visión para el PDF escaneado")
+	}
+	if len(res.actions) != 1 {
+		t.Fatalf("acciones = %d, want 1", len(res.actions))
+	}
+}
+
+func TestExtractScannedPDFMergesPages(t *testing.T) {
+	gc := &fakeExtractClient{visionOuts: []string{
+		`{"movimientos":[{"type":"expense","amount_centavos":1000,"category":"a"}]}`,
+		`{"movimientos":[{"type":"income","amount_centavos":2000,"category":"b"}]}`,
+		`{"movimientos":[{"type":"expense","amount_centavos":3000,"category":"c"}]}`,
+	}}
+	ex := newExtractor(gc)
+	pdf := buildScannedPDF(t, 3)
+	res, err := ex.extract(context.Background(), pdf, "application/pdf", "scan.pdf")
+	if err != nil {
+		t.Fatalf("extract: %v", err)
+	}
+	if gc.visionCalls != 3 {
+		t.Errorf("visionCalls = %d, want 3", gc.visionCalls)
+	}
+	if len(res.actions) != 3 {
+		t.Fatalf("acciones (juntadas) = %d, want 3", len(res.actions))
+	}
+}
+
+func TestExtractScannedNoImageFallback(t *testing.T) {
+	gc := &fakeExtractClient{out: `{"movimientos":[]}`}
+	ex := newExtractor(gc)
+	// bytes que no son un PDF con imagen → pdfText vacío/err y pdfImages error/vacío
+	_, err := ex.extract(context.Background(), []byte("no soy un pdf"), "application/pdf", "x.pdf")
+	if err == nil || !strings.Contains(err.Error(), "súbelo como foto") {
+		t.Fatalf("esperaba el fallback 'súbelo como foto', got %v", err)
+	}
+	if gc.gotImage {
+		t.Error("no debería llamar a visión cuando no hay imagen")
 	}
 }

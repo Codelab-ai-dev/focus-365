@@ -41,45 +41,80 @@ type extractedMovs struct {
 
 // extract detecta el tipo, obtiene el JSON del modelo y valida cada movimiento.
 func (e *extractor) extract(ctx context.Context, data []byte, mime, filename string) (*extractResult, error) {
-	var raw string
-	var err error
+	var movs []json.RawMessage
 	truncated := false
+
+	// addFromRaw parsea una respuesta del modelo y acumula sus movimientos.
+	addFromRaw := func(raw string) error {
+		var parsed extractedMovs
+		if jerr := json.Unmarshal([]byte(raw), &parsed); jerr != nil {
+			return fmt.Errorf("respuesta del modelo no es JSON válido")
+		}
+		movs = append(movs, parsed.Movimientos...)
+		return nil
+	}
 
 	switch {
 	case mime == "image/jpeg" || mime == "image/png" || strings.HasSuffix(filename, ".jpg") || strings.HasSuffix(filename, ".jpeg") || strings.HasSuffix(filename, ".png"):
 		b64 := base64.StdEncoding.EncodeToString(data)
-		raw, err = e.groq.ExtractVision(ctx, extractSystemPrompt, b64, imageMime(mime, filename))
+		raw, verr := e.groq.ExtractVision(ctx, extractSystemPrompt, b64, imageMime(mime, filename))
+		if verr != nil {
+			return nil, ErrUnavailable
+		}
+		if aerr := addFromRaw(raw); aerr != nil {
+			return nil, aerr
+		}
+
 	case mime == "text/csv" || strings.HasSuffix(filename, ".csv"):
-		var text string
-		text, truncated = csvToText(data)
-		raw, err = e.groq.ExtractText(ctx, extractSystemPrompt, text)
+		text, tr := csvToText(data)
+		truncated = tr
+		raw, terr := e.groq.ExtractText(ctx, extractSystemPrompt, text)
+		if terr != nil {
+			return nil, ErrUnavailable
+		}
+		if aerr := addFromRaw(raw); aerr != nil {
+			return nil, aerr
+		}
+
 	case mime == "application/pdf" || strings.HasSuffix(filename, ".pdf"):
 		text, perr := pdfText(data)
-		if perr != nil || strings.TrimSpace(text) == "" {
-			return nil, fmt.Errorf("el PDF parece escaneado o ilegible; súbelo como foto")
+		if perr == nil && strings.TrimSpace(text) != "" {
+			// PDF con texto → camino de texto (como hoy).
+			if len(text) > maxTextChars {
+				text = text[:maxTextChars]
+				truncated = true
+			}
+			raw, terr := e.groq.ExtractText(ctx, extractSystemPrompt, text)
+			if terr != nil {
+				return nil, ErrUnavailable
+			}
+			if aerr := addFromRaw(raw); aerr != nil {
+				return nil, aerr
+			}
+		} else {
+			// PDF escaneado → imágenes embebidas → visión (hasta maxScannedPages).
+			imgs, ierr := pdfImages(data, maxScannedPages)
+			if ierr != nil || len(imgs) == 0 {
+				return nil, fmt.Errorf("el PDF parece escaneado o ilegible; súbelo como foto")
+			}
+			for _, img := range imgs {
+				b64 := base64.StdEncoding.EncodeToString(img.bytes)
+				raw, verr := e.groq.ExtractVision(ctx, extractSystemPrompt, b64, img.mime)
+				if verr != nil {
+					return nil, ErrUnavailable
+				}
+				if aerr := addFromRaw(raw); aerr != nil {
+					return nil, aerr
+				}
+			}
 		}
-		if len(text) > maxTextChars {
-			text = text[:maxTextChars]
-			truncated = true
-		}
-		raw, err = e.groq.ExtractText(ctx, extractSystemPrompt, text)
+
 	default:
 		return nil, fmt.Errorf("formato no soportado: %s", mime)
 	}
-	if err != nil {
-		// Fallos de red/HTTP de Groq → ErrUnavailable (el handler lo mapea a 503).
-		// Los errores "de negocio" (formato, escaneado, cero movimientos) ya
-		// retornaron antes con mensaje y se mapean a 422.
-		return nil, ErrUnavailable
-	}
-
-	var parsed extractedMovs
-	if jerr := json.Unmarshal([]byte(raw), &parsed); jerr != nil {
-		return nil, fmt.Errorf("respuesta del modelo no es JSON válido")
-	}
 
 	res := &extractResult{truncated: truncated}
-	for _, m := range parsed.Movimientos {
+	for _, m := range movs {
 		payload, verr := parseMovimientoLenient(string(m))
 		if verr != nil {
 			res.dropped++

@@ -103,6 +103,46 @@ func (q *Queries) ListCommitmentsByTarget(ctx context.Context, arg ListCommitmen
 	return items, nil
 }
 
+const listPendingCommitments = `-- name: ListPendingCommitments :many
+SELECT id, user_id, target_date, text, done, position, created_at, updated_at FROM commitments
+WHERE user_id = $1 AND done = false AND target_date <= $2
+ORDER BY target_date ASC, position ASC
+`
+
+type ListPendingCommitmentsParams struct {
+	UserID     uuid.UUID `json:"user_id"`
+	TargetDate time.Time `json:"target_date"`
+}
+
+func (q *Queries) ListPendingCommitments(ctx context.Context, arg ListPendingCommitmentsParams) ([]Commitment, error) {
+	rows, err := q.db.Query(ctx, listPendingCommitments, arg.UserID, arg.TargetDate)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []Commitment
+	for rows.Next() {
+		var i Commitment
+		if err := rows.Scan(
+			&i.ID,
+			&i.UserID,
+			&i.TargetDate,
+			&i.Text,
+			&i.Done,
+			&i.Position,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listRecentCommitments = `-- name: ListRecentCommitments :many
 SELECT id, user_id, target_date, text, done, position, created_at, updated_at FROM commitments
 WHERE user_id = $1 AND target_date >= $2

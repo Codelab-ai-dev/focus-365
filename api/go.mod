@@ -2,8 +2,6 @@ module github.com/focus365/api
 
 go 1.23.0
 
-toolchain go1.23.5
-
 require (
 	github.com/go-chi/chi/v5 v5.1.0
 	github.com/go-playground/validator/v10 v10.22.1

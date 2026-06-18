@@ -1,7 +1,7 @@
 # Bitácora de sesión — Rebanada 30: OCR de PDFs escaneados (Finanzas)
 
 **Fecha:** 2026-06-17
-**Estado al cierre:** Mergeada a `main` y pusheada. **Smoke de producción pendiente del deploy manual.**
+**Estado al cierre:** Completada, mergeada a `main` y **verificada en producción** (smoke OK: el PDF escaneado llegó a la visión, sin "súbelo como foto").
 **Rama:** `plan-30-ocr-pdf` (mezclada `--no-ff` y borrada).
 
 ## Qué se entregó
@@ -60,11 +60,11 @@ Dockerfile · merge · fixture + smoke.
 
 - Backend: build (+ `CGO_ENABLED=0`) limpio; `go test -p 1 ./...` verde (4 tests de
   `pdfImages` + 3 de la rama escaneada + no-regresión de imagen/CSV/PDF-texto).
-- **Smoke producción:** pendiente del deploy manual. `scripts/smoke-r30.sh` sube un
-  PDF escaneado de prueba (`scripts/fixtures/scanned-sample.pdf`) y verifica que NO
-  cae en "súbelo como foto" (prueba que llegó a la visión). La verificación fuerte
-  (extraer movimientos de un comprobante real) queda para una prueba manual subiendo
-  un comprobante escaneado desde la UI.
+- **Smoke producción OK** (tras deploy manual): el PDF escaneado de prueba subió a
+  `/ai/import` y devolvió 422 "no pude leer movimientos" (imagen de ruido, sin
+  comprobante) — **sin** el rechazo "súbelo como foto", lo que prueba que el PDF
+  llegó a la visión (nuevo camino vivo). La verificación fuerte (extraer
+  movimientos de un comprobante real) queda para una prueba manual desde la UI.
 
 ## Backlog restante
 

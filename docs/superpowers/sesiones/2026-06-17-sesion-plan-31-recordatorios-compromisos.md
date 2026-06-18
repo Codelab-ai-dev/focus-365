@@ -1,7 +1,7 @@
 # Bitácora de sesión — Rebanada 31: Recordatorios de compromisos (panel in-app)
 
 **Fecha:** 2026-06-17
-**Estado al cierre:** Mergeada a `main` y pusheada. **Smoke de producción pendiente del deploy manual.**
+**Estado al cierre:** Completada, mergeada a `main` y **verificada en producción** (smoke OK: pending trae vencido + hoy; marcar cumplido lo saca del panel y el vencido permanece).
 **Rama:** `plan-31-recordatorios` (mezclada `--no-ff` y borrada).
 
 ## Qué se entregó
@@ -58,10 +58,11 @@ lib + home · `556b3ed` etiqueta "Hoy" · `1c38ae3` link sin parámetro de fecha
 - Backend: `go test -p 1 ./internal/commitments/` verde (incluye `TestPending` +
   `TestPendingEndpoint`); build + vet limpios.
 - Frontend: `RemindersPanel.test.tsx` 3/3; `npm run build` (tsc) limpio.
-- **Smoke producción:** pendiente del deploy manual. `scripts/smoke-r31.sh` crea un
-  compromiso vencido (ayer) y otro de hoy vía el `POST /checkins` (que guarda los
-  compromisos para `date + 1`), verifica que `pending` trae ambos (vencido primero),
-  marca el de hoy y verifica que sale de `pending` y el vencido permanece. Usa `jq`.
+- **Smoke producción OK** (tras deploy manual): `scripts/smoke-r31.sh` creó un
+  compromiso vencido (2026-06-17) y otro de hoy (2026-06-18) vía el `POST /checkins`
+  (que guarda los compromisos para `date + 1`); `GET /commitments/pending` devolvió
+  ambos (vencido primero); al marcar el de hoy salió de `pending` y el vencido
+  permaneció. Usa `jq`.
 
 ## Backlog restante
 

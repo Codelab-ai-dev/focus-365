@@ -47,5 +47,26 @@ services:
       - api
     restart: unless-stopped
 
+  pgbackups:
+    image: prodrigestivill/postgres-backup-local:16
+    environment:
+      POSTGRES_HOST: db
+      POSTGRES_DB: ${POSTGRES_DB:-focus365}
+      POSTGRES_USER: ${POSTGRES_USER:-focus}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?define POSTGRES_PASSWORD en Coolify}
+      SCHEDULE: "@daily"
+      BACKUP_KEEP_DAYS: "7"
+      BACKUP_KEEP_WEEKS: "4"
+      BACKUP_KEEP_MONTHS: "3"
+      # Dumps re-aplicables sobre una DB existente (la imagen gzipea por su cuenta):
+      POSTGRES_EXTRA_OPTS: "--clean --if-exists"
+    volumes:
+      - backups:/backups
+    depends_on:
+      db:
+        condition: service_healthy
+    restart: unless-stopped
+
 volumes:
   dbdata:
+  backups:

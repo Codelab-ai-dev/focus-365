@@ -132,7 +132,12 @@ describe("EntrenamientoPage", () => {
     // El nombre del ejercicio se renderiza junto a las reps y el peso
     // como nodos de texto hermanos, por eso usamos una coincidencia flexible.
     expect(
-      await screen.findByText((_, el) => el?.tagName === "LI" && el.textContent?.startsWith("Sentadilla") === true)
+      await screen.findByText(
+        (_, el) =>
+          el?.tagName === "LI" &&
+          el.textContent?.startsWith("Sentadilla") === true &&
+          el.textContent?.includes("reps") === true
+      )
     ).toBeInTheDocument();
   });
 
@@ -191,6 +196,15 @@ describe("EntrenamientoPage", () => {
     renderPage();
     await userEvent.click(await screen.findByRole("button", { name: "Analizar" }));
     expect(await screen.findByText(/Subí 2.5 kg en sentadilla/)).toBeInTheDocument();
+  });
+
+  it("muestra la sección Progreso con gráficos y records", async () => {
+    renderPage();
+    expect(await screen.findByText("Progreso")).toBeInTheDocument();
+    await waitFor(() => {
+      expect(document.querySelectorAll("svg rect").length).toBeGreaterThan(0);
+    });
+    expect(screen.getAllByText(/Sentadilla/).length).toBeGreaterThan(0);
   });
 
   it("al borrar una sesión dispara un DELETE", async () => {

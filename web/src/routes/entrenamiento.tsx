@@ -1,5 +1,5 @@
 import { createFileRoute, useNavigate, Link } from "@tanstack/react-router";
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useAuth } from "@/lib/auth";
 import {
@@ -23,6 +23,14 @@ import { Button } from "@/ui/Button";
 import { Input } from "@/ui/Input";
 import { Chip } from "@/ui/Chip";
 import { Reveal, RevealItem } from "@/ui/Reveal";
+import { BarChart } from "@/ui/BarChart";
+import {
+  weeklyVolume,
+  weeklyFrequency,
+  exerciseNames,
+  exerciseProgression,
+  personalRecords,
+} from "@/lib/trainingProgress";
 
 export const Route = createFileRoute("/entrenamiento")({ component: EntrenamientoPage });
 
@@ -62,6 +70,19 @@ function EntrenamientoPage() {
   const [suggestError, setSuggestError] = useState<string | null>(null);
   const [adjustScope, setAdjustScope] = useState<"last" | "week">("last");
   const [adjustError, setAdjustError] = useState<string | null>(null);
+  const [progressExercise, setProgressExercise] = useState("");
+
+  const workouts = historyQuery.data ?? [];
+  const volume = useMemo(() => weeklyVolume(workouts, 12), [workouts]);
+  const frequency = useMemo(() => weeklyFrequency(workouts, 12), [workouts]);
+  const names = useMemo(() => exerciseNames(workouts), [workouts]);
+  const selectedExercise =
+    progressExercise && names.includes(progressExercise) ? progressExercise : names[0] ?? "";
+  const progression = useMemo(
+    () => (selectedExercise ? exerciseProgression(workouts, selectedExercise, 12) : []),
+    [workouts, selectedExercise]
+  );
+  const prs = useMemo(() => personalRecords(workouts), [workouts]);
 
   function invalidate() {
     qc.invalidateQueries({ queryKey: ["training"] });
@@ -361,9 +382,9 @@ function EntrenamientoPage() {
 
         <section className="mt-8">
           <h2 className="font-display text-lg font-bold tracking-tight">Historial</h2>
-          {historyQuery.data && historyQuery.data.length > 0 ? (
+          {workouts.length > 0 ? (
             <Reveal className="mt-3 space-y-3">
-              {historyQuery.data.map((w: Workout) => (
+              {workouts.map((w: Workout) => (
                 <RevealItem key={w.id}>
                   <Card className="p-4 text-sm">
                     <div className="flex items-center justify-between">
@@ -412,6 +433,55 @@ function EntrenamientoPage() {
             </Reveal>
           ) : (
             <p className="mt-3 text-sm text-muted">Aún no hay sesiones.</p>
+          )}
+        </section>
+
+        <section className="mt-8">
+          <h2 className="font-display text-lg font-bold tracking-tight">Progreso</h2>
+          {workouts.length === 0 ? (
+            <p className="mt-3 text-sm text-muted">Registrá entrenos para ver tu progreso.</p>
+          ) : (
+            <div className="mt-3 space-y-4">
+              <Card className="p-4">
+                <h3 className="text-xs font-bold uppercase tracking-[0.12em] text-muted">Volumen por semana (kg·reps)</h3>
+                <BarChart data={volume} className="mt-2" />
+              </Card>
+              <Card className="p-4">
+                <h3 className="text-xs font-bold uppercase tracking-[0.12em] text-muted">Frecuencia por semana</h3>
+                <BarChart data={frequency} className="mt-2" />
+              </Card>
+              {names.length > 0 && (
+                <Card className="p-4 space-y-2">
+                  <div className="flex items-center justify-between gap-2">
+                    <h3 className="text-xs font-bold uppercase tracking-[0.12em] text-muted">Progresión (peso máx.)</h3>
+                    <select
+                      aria-label="Ejercicio"
+                      value={selectedExercise}
+                      onChange={(e) => setProgressExercise(e.target.value)}
+                      className="rounded-lg border-2 border-ink bg-surface px-2 py-1 text-xs"
+                    >
+                      {names.map((n) => (
+                        <option key={n} value={n}>{n}</option>
+                      ))}
+                    </select>
+                  </div>
+                  <BarChart data={progression} unit="kg" />
+                </Card>
+              )}
+              {prs.length > 0 && (
+                <Card className="p-4">
+                  <h3 className="text-xs font-bold uppercase tracking-[0.12em] text-muted">Records</h3>
+                  <ul className="mt-2 space-y-1 text-sm">
+                    {prs.map((p) => (
+                      <li key={p.exercise} className="flex justify-between">
+                        <span>{p.exercise}</span>
+                        <span className="font-bold">{p.weightKg} kg</span>
+                      </li>
+                    ))}
+                  </ul>
+                </Card>
+              )}
+            </div>
           )}
         </section>
 

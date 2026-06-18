@@ -13,6 +13,12 @@ export function getDue(date: string): Promise<Commitment[]> {
   ).then((r) => r.commitments);
 }
 
+export function getPendingCommitments(): Promise<Commitment[]> {
+  return apiFetch<{ commitments: Commitment[] }>(
+    `/api/v1/commitments/pending`
+  ).then((r) => r.commitments);
+}
+
 export function toggle(id: string): Promise<Commitment> {
   return apiFetch<{ commitment: Commitment }>(
     `/api/v1/commitments/${id}/toggle`,

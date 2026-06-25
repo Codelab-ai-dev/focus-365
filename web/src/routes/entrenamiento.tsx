@@ -211,20 +211,24 @@ function EntrenamientoPage() {
               <span className="text-[10px] font-bold uppercase tracking-[0.12em] text-muted">Series</span>
               {rows.map((row, i) => (
                 <div key={i} className="space-y-1">
-                  {/* El nombre del ejercicio en su propia línea (ancho completo). */}
-                  <Input
-                    type="text"
-                    aria-label={`Ejercicio ${i + 1}`}
-                    list="catalogo-ejercicios"
-                    placeholder="Ejercicio"
-                    value={row.exercise}
-                    onChange={(e) => updateRow(i, { exercise: e.target.value })}
-                  />
-                  <div className="flex gap-2">
+                  <div className="flex items-baseline gap-2">
+                    <span className="text-[10px] font-bold text-muted">Serie {i + 1}:</span>
+                    {/* El nombre del ejercicio en su propia línea (ancho completo). */}
+                    <Input
+                      type="text"
+                      aria-label={`Ejercicio ${i + 1}`}
+                      list="catalogo-ejercicios"
+                      placeholder="Ejercicio"
+                      value={row.exercise}
+                      onChange={(e) => updateRow(i, { exercise: e.target.value })}
+                      className="flex-1"
+                    />
+                  </div>
+                  <div className="flex gap-2 mt-1">
                     <Input
                       type="number"
-                      aria-label={`Reps ${i + 1}`}
-                      placeholder="Reps"
+                      aria-label={`Reps o tiempo (seg) ${i + 1}`}
+                      placeholder="Reps o tiempo (seg)"
                       min="0"
                       value={row.reps}
                       onChange={(e) => updateRow(i, { reps: e.target.value })}
@@ -233,7 +237,7 @@ function EntrenamientoPage() {
                     <Input
                       type="number"
                       aria-label={`Peso ${i + 1}`}
-                      placeholder="kg"
+                      placeholder="kg (opcional)"
                       min="0"
                       step="0.5"
                       value={row.weightKg}
@@ -247,6 +251,7 @@ function EntrenamientoPage() {
                     placeholder="nota de la serie (opcional)"
                     value={row.note}
                     onChange={(e) => updateRow(i, { note: e.target.value })}
+                    className="mt-1"
                   />
                 </div>
               ))}
@@ -407,6 +412,7 @@ function EntrenamientoPage() {
                     <ul className="mt-2 space-y-1 text-muted">
                       {w.sets.map((s, i) => (
                         <li key={i}>
+                          <span className="text-[10px] font-bold text-muted">Serie {i + 1}:</span> {' '}
                           {s.exercise}
                           {s.reps != null && (
                             <>

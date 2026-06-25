@@ -322,7 +322,7 @@ function EntrenamientoPage() {
             </p>
           )}
           {suggestionQuery.data ? (
-            <div className="rounded-lg border-2 border-ink bg-surface px-3 py-2 shadow-brutal-sm">
+            <div className="rounded-lg border-2 border-ink bg-surface px-3 py-2 shadow-brutal-sm max-h-[200px] overflow-y-auto">
               <p className="whitespace-pre-wrap text-sm">{suggestionQuery.data.content}</p>
               {suggestionQuery.data.created_at && (
                 <p className="mt-2 text-[10px] uppercase tracking-[0.12em] text-muted">
@@ -370,7 +370,7 @@ function EntrenamientoPage() {
             </p>
           )}
           {adjustmentQuery.data ? (
-            <div className="rounded-lg border-2 border-ink bg-surface px-3 py-2 shadow-brutal-sm">
+            <div className="rounded-lg border-2 border-ink bg-surface px-3 py-2 shadow-brutal-sm max-h-[200px] overflow-y-auto">
               <p className="whitespace-pre-wrap text-sm">{adjustmentQuery.data.content}</p>
               {adjustmentQuery.data.created_at && (
                 <p className="mt-2 text-[10px] uppercase tracking-[0.12em] text-muted">

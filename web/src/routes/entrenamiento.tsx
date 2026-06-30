@@ -491,6 +491,29 @@ function EntrenamientoPage() {
           )}
         </section>
 
+        <section className="mt-8">
+          <h2 className="font-display text-lg font-bold tracking-tight">Documentación</h2>
+          <Card className="p-6 border-dashed">
+            <div className="flex items-start gap-3">
+              <span className="flex-shrink-0 text-2xl">📄</span>
+              <div>
+                <h3 className="font-display text-sm font-bold tracking-tight text-ink">Supermovimiento</h3>
+                <p className="mt-1 text-sm text-muted">
+                  Guía completa del programa de supermovimiento.
+                </p>
+                <a
+                  href="/docs/supermovement"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="mt-2 inline-flex items-center px-3 py-1 text-xs font-bold border-2 border-ink hover:bg-accent/10 transition-colors"
+                >
+                  Ver documento
+                </a>
+              </div>
+            </div>
+          </Card>
+        </section>
+
         <ProfileModal open={profileOpen} onClose={() => setProfileOpen(false)} />
       </div>
     </PageTransition>

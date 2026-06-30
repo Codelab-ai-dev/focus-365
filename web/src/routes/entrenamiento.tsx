@@ -502,7 +502,7 @@ function EntrenamientoPage() {
                   Guía completa del programa de supermovimiento.
                 </p>
                 <a
-                  href="/docs/supermovement/programa-completo.md"
+                  href="../docs/supermovement/programa-completo.md"
                   target="_blank"
                   rel="noopener noreferrer"
                   className="mt-2 inline-flex items-center px-3 py-1 text-xs font-bold border-2 border-ink hover:bg-accent/10 transition-colors"
